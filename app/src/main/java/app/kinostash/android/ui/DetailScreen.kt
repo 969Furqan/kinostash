@@ -90,6 +90,8 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     var titleMenu by remember { mutableStateOf(false) }
     var seasonMenu by remember { mutableStateOf(false) }
     var categories by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val preparing by TitleActions.preparing.collectAsState()
 
     LaunchedEffect(type, id) {
         if (meta == null) {
@@ -110,8 +112,14 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     val libItem = LibraryItem(m.id, type, m.name, m.poster, System.currentTimeMillis())
     fun open(videoId: String) { if (!TitleActions.playIfDownloaded(ctx, videoId)) onPickVideo(videoId) }
     fun toast(s: String) = Toast.makeText(ctx, s, Toast.LENGTH_SHORT).show()
+    val selecting = selected.isNotEmpty()
+    fun toggle(v: Video) { selected = if (v.id in selected) selected - v.id else selected + v.id }
+    androidx.activity.compose.BackHandler(enabled = selecting) { selected = emptySet() }
+    val seasonEpisodes = m.videos.filter { it.season == season || seasons.isEmpty() }
+    fun airedOf(list: List<Video>) = list.filter { (it.releasedAt ?: 0) <= System.currentTimeMillis() }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    Box(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (selecting) 96.dp else 24.dp)) {
         item {
             Box(Modifier.fillMaxWidth().height(260.dp)) {
                 AsyncImage(m.background ?: m.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
@@ -214,10 +222,19 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                             )
                         }
                     }
+                    IconButton(onClick = { TitleActions.queueDownloads(ctx, m, airedOf(seasonEpisodes)) }) {
+                        Icon(Icons.Outlined.Download, "Download season", tint = Accent)
+                    }
                     IconButton(onClick = { seasonMenu = true }) { Icon(Icons.Outlined.MoreVert, "Season options") }
                 }
             }
-            items(m.videos.filter { it.season == season || seasons.isEmpty() }, key = { it.id }) { v ->
+            if (!selecting) item {
+                Text(
+                    "Long-press an episode for options, or choose Select to download several at once.",
+                    color = Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                )
+            }
+            items(seasonEpisodes, key = { it.id }) { v ->
                 val h = history.find { it.videoId == v.id }
                 val d = TitleActions.downloaded(v.id, downloads)
                 val busy = TitleActions.downloading(v.id, downloads)
@@ -231,13 +248,44 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                         progress = h?.let { if (it.finished) 1f else it.progress },
                         watched = h?.finished == true,
                         downloaded = d != null,
-                        downloading = busy?.progress,
-                        onClick = { open(v.id) },
-                        onLongClick = { episodeMenu = v },
+                        downloading = busy?.progress ?: if (v.id in preparing) 0f else null,
+                        onClick = { if (selecting) toggle(v) else open(v.id) },
+                        onLongClick = { if (selecting) toggle(v) else episodeMenu = v },
+                        trailing = {
+                            if (selecting) androidx.compose.material3.Checkbox(
+                                checked = v.id in selected, onCheckedChange = { toggle(v) },
+                                colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = Accent),
+                            )
+                        },
                     )
                 }
             }
         }
+    }
+
+    // Multi-select bar: pick episodes (across seasons too) and queue them all.
+    if (selecting) {
+        androidx.compose.material3.Surface(
+            color = Surface2, shadowElevation = 8.dp,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${selected.size} selected", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                val airedHere = airedOf(seasonEpisodes); val allHere = airedHere.isNotEmpty() && airedHere.all { it.id in selected }
+                TextButton(onClick = {
+                    selected = if (allHere) selected - seasonEpisodes.map { it.id }.toSet() else selected + airedHere.map { it.id }
+                }) { Text(if (allHere) "Clear season" else "Select season") }
+                TextButton(onClick = { selected = emptySet() }) { Text("Cancel", color = Muted) }
+                androidx.compose.material3.Button(
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Accent),
+                    onClick = {
+                        TitleActions.queueDownloads(ctx, m, m.videos.filter { it.id in selected })
+                        selected = emptySet()
+                    },
+                ) { Icon(Icons.Outlined.Download, null); Spacer(Modifier.width(4.dp)); Text("Download") }
+            }
+        }
+    }
     }
 
     if (categories) CategoryDialog(libItem) { categories = false }
@@ -252,14 +300,13 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                 Column {
                     MenuItem("Mark season as watched") { TitleActions.setWatched(m, aired, true); seasonMenu = false }
                     MenuItem("Mark season as not watched") { TitleActions.setWatched(m, eps, false); seasonMenu = false }
-                    MenuItem("Download season (${App.instance.settings.quality.label.lowercase()})") {
-                        seasonMenu = false
-                        scope.launch {
-                            var queued = 0
-                            for (v in aired) if (TitleActions.autoDownload(ctx, m, v).startsWith("Downloading")) queued++
-                            toast("Queued $queued episode${if (queued == 1) "" else "s"}")
-                        }
+                    MenuItem("Download season (${aired.size} episodes)") {
+                        seasonMenu = false; TitleActions.queueDownloads(ctx, m, aired)
                     }
+                    MenuItem("Download all seasons") {
+                        seasonMenu = false; TitleActions.queueDownloads(ctx, m, TitleActions.aired(m))
+                    }
+                    MenuItem("Select episodes…") { seasonMenu = false; selected = aired.take(1).map { it.id }.toSet() }
                 }
             },
             confirmButton = { TextButton(onClick = { seasonMenu = false }) { Text("Close") } },
@@ -275,6 +322,7 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                 Column {
                     if (d != null) MenuItem("Play downloaded copy") { episodeMenu = null; TitleActions.playIfDownloaded(ctx, v.id) }
                     MenuItem("Choose a stream") { episodeMenu = null; onPickVideo(v.id) }
+                    MenuItem("Select (download several)") { selected = setOf(v.id); episodeMenu = null }
                     MenuItem(if (watched) "Mark as not watched" else "Mark as watched") { TitleActions.setWatched(m, listOf(v), !watched); episodeMenu = null }
                     MenuItem("Mark all before this as watched") {
                         val idx = m.videos.indexOf(v)

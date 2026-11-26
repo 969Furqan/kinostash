@@ -74,7 +74,33 @@ object TitleActions {
         return true
     }
 
-    /** Download the best stream for a movie or episode (preferred quality, then most seeders). */
+    /** Episodes whose stream is being looked up before they join the download queue. */
+    val preparing = kotlinx.coroutines.flow.MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Queue several episodes at once. Runs in the app scope (keeps going if you leave the screen),
+     * finds the best stream for each in turn, then the downloader works through the queue.
+     */
+    fun queueDownloads(ctx: Context, meta: MetaDetail, videos: List<Video>) {
+        val app = ctx.applicationContext
+        val todo = videos.filter { downloaded(it.id) == null && downloading(it.id) == null && it.id !in preparing.value }
+        if (todo.isEmpty()) { Toast.makeText(app, "Already downloaded or in the queue", Toast.LENGTH_SHORT).show(); return }
+        preparing.value = preparing.value + todo.map { it.id }
+        Toast.makeText(app, "Adding ${todo.size} episode${if (todo.size == 1) "" else "s"} to the download queue…", Toast.LENGTH_SHORT).show()
+        App.instance.appScope.launch {
+            var queued = 0
+            val failed = mutableListOf<String>()
+            for (v in todo) {
+                val msg = runCatching { autoDownload(app, meta, v) }.getOrElse { "Failed" }
+                if (msg.startsWith("Downloading") || msg.startsWith("Already")) queued++ else failed += label(v).substringBefore(" · ")
+                preparing.value = preparing.value - v.id
+            }
+            val text = "Queued $queued of ${todo.size}" + if (failed.isNotEmpty()) " · no stream for ${failed.take(4).joinToString(", ")}${if (failed.size > 4) "…" else ""}" else ""
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { Toast.makeText(app, text, Toast.LENGTH_LONG).show() }
+        }
+    }
+
+    /** Download the best stream for a movie or episode (by your quality setting; most peers by default). */
     suspend fun autoDownload(ctx: Context, meta: MetaDetail, video: Video?): String {
         val videoId = video?.id ?: meta.id
         if (downloaded(videoId) != null) return "Already downloaded"

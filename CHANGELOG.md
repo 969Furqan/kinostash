@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- Download many episodes at once: long-press an episode → **Select**, tick as many as you like (across seasons too, or **Select season**), then **Download**. They join the queue and download two at a time; the rest wait their turn.
+- **Download season** button next to the season chips, plus **Download all seasons** in the season menu (⋮). Queuing keeps going if you leave the screen.
+- "Play best" and "Download best" now pick the stream with the **most peers** by default (fastest to start, least buffering). Prefer resolution? Choose **Highest quality** or a specific quality in Settings → General.
+
 ## 0.5.3
 
 - Subtitles keep their size when you switch the video between Fit, Zoom (crop) and Stretch.

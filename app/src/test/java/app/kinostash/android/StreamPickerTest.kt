@@ -11,8 +11,13 @@ class StreamPickerTest {
 
     private val streams = listOf(s("1080p", 50), s("1080p", 400), s("720p", 900), s("2160p", 12), s("2160p", 80))
 
-    @Test fun bestAvailablePicksHighestQualityWithMostSeeders() {
-        assertEquals("h2160p80", StreamPicker.pick(streams, QualityPref.BEST)?.infoHash)
+    @Test fun mostPeersPicksBestSeededStreamOfAnyQuality() {
+        assertEquals("h720p900", StreamPicker.pick(streams, QualityPref.BEST)?.infoHash)
+        assertEquals("h720p900", StreamPicker.pick(streams, QualityPref.BEST, forDownload = true)?.infoHash)
+    }
+
+    @Test fun highestQualityPicksTopResolutionWithMostSeeders() {
+        assertEquals("h2160p80", StreamPicker.pick(streams, QualityPref.HIGHEST)?.infoHash)
     }
 
     @Test fun preferredQualityWithMostSeeders() {
