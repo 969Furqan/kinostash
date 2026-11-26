@@ -25,6 +25,44 @@ class Library(context: Context) {
 
     fun contains(id: String) = _items.value.any { it.id == id }
 
+    // --- Categories (your own lists, e.g. "Anime", "Watch later") ---------------------------
+    private val catFile = File(context.filesDir, "library_categories.json")
+    private val _categories = MutableStateFlow(loadCategories())
+    /** Category name -> ids of titles in it, in creation order. */
+    val categories: StateFlow<Map<String, Set<String>>> = _categories
+
+    private fun loadCategories(): Map<String, Set<String>> = runCatching {
+        val o = JSONObject(catFile.readText())
+        o.keys().asSequence().associateWith { k -> o.getJSONArray(k).let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } }
+    }.getOrDefault(emptyMap())
+
+    private fun saveCategories(map: Map<String, Set<String>>) {
+        _categories.value = map
+        runCatching {
+            val o = JSONObject()
+            map.forEach { (k, v) -> o.put(k, JSONArray(v.toList())) }
+            catFile.writeText(o.toString())
+        }
+    }
+
+    @Synchronized fun createCategory(name: String) {
+        val n = name.trim()
+        if (n.isNotEmpty() && n !in _categories.value) saveCategories(_categories.value + (n to emptySet()))
+    }
+    @Synchronized fun deleteCategory(name: String) = saveCategories(_categories.value - name)
+    @Synchronized fun renameCategory(old: String, new: String) {
+        val n = new.trim()
+        val ids = _categories.value[old] ?: return
+        if (n.isEmpty() || n in _categories.value) return
+        saveCategories(_categories.value.toList().map { (k, v) -> if (k == old) n to ids else k to v }.toMap())
+    }
+    /** Put [item] in exactly these categories (adds it to the library too). */
+    @Synchronized fun setCategories(item: LibraryItem, names: Set<String>) {
+        add(item)
+        saveCategories(_categories.value.mapValues { (k, v) -> if (k in names) v + item.id else v - item.id })
+    }
+    fun categoriesOf(id: String): Set<String> = _categories.value.filterValues { id in it }.keys
+
     @Synchronized
     fun add(item: LibraryItem) {
         if (contains(item.id)) return
@@ -32,7 +70,10 @@ class Library(context: Context) {
     }
 
     @Synchronized
-    fun remove(id: String) = commit(_items.value.filterNot { it.id == id })
+    fun remove(id: String) {
+        commit(_items.value.filterNot { it.id == id })
+        if (_categories.value.values.any { id in it }) saveCategories(_categories.value.mapValues { it.value - id })
+    }
 
     /** Merge items (e.g. from a Stremio account), keeping what's already here. */
     @Synchronized

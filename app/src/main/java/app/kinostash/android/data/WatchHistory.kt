@@ -20,7 +20,7 @@ data class WatchEntry(
     val updatedAt: Long,
 ) {
     val progress: Float get() = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    val finished: Boolean get() = durationMs > 0 && durationMs - positionMs < 3 * 60_000
+    val finished: Boolean get() = durationMs > 0 && (durationMs - positionMs < 3 * 60_000 || positionMs >= durationMs)
 }
 
 class WatchHistory(context: Context) {
@@ -52,6 +52,20 @@ class WatchHistory(context: Context) {
             .sortedByDescending { it.updatedAt }.take(300)
         val now = System.currentTimeMillis()
         if (force || now - lastSave > 10_000) { lastSave = now; save() }
+    }
+
+    fun isWatched(videoId: String) = _entries.value.any { it.videoId == videoId && it.finished }
+
+    /** Mark videos as watched (a finished history entry) or not watched (entry removed). */
+    @Synchronized
+    fun setWatched(items: List<WatchEntry>, watched: Boolean) {
+        val ids = items.map { it.videoId }.toSet()
+        val now = System.currentTimeMillis()
+        val rest = _entries.value.filterNot { it.videoId in ids }
+        _entries.value = if (watched) {
+            (rest + items.mapIndexed { i, e -> e.copy(positionMs = 1, durationMs = 1, updatedAt = now - i) }).sortedByDescending { it.updatedAt }
+        } else rest
+        save()
     }
 
     @Synchronized

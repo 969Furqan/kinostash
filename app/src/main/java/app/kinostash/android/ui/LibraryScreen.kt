@@ -1,7 +1,10 @@
 package app.kinostash.android.ui
 
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,12 +49,19 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private enum class LibTab(val label: String) { LIBRARY("Library"), UPCOMING("Upcoming"), NEW("New episodes") }
+private enum class LibTab(val label: String) { LIBRARY("Library"), UPCOMING("Upcoming"), NEW("New episodes"), HISTORY("History") }
 
 /** Your saved titles, the release calendar of your series, and recently released episodes. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(onOpen: (type: String, id: String) -> Unit) {
+fun LibraryScreen(onOpen: (type: String, id: String) -> Unit, onSearch: (String) -> Unit = {}) {
     val items by App.instance.library.items.collectAsState()
+    val categories by App.instance.library.categories.collectAsState()
+    val downloads by app.kinostash.android.downloads.OfflineDownloads.store.items.collectAsState()
+    val historyEntries by App.instance.history.entries.collectAsState()
+    var menuFor by remember { mutableStateOf<app.kinostash.android.data.LibraryItem?>(null) }
+    var newCategory by remember { mutableStateOf(false) }
+    var editCategory by remember { mutableStateOf<String?>(null) }
     val releases by App.instance.upcoming.releases.collectAsState()
     var tab by rememberSaveable { mutableStateOf(LibTab.LIBRARY) }
     var filter by rememberSaveable { mutableStateOf<String?>(null) }
@@ -66,8 +76,8 @@ fun LibraryScreen(onOpen: (type: String, id: String) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Text("Library", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(16.dp, 16.dp, 16.dp, 8.dp))
-        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LibTab.entries.forEach { t ->
+        androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(LibTab.entries) { t ->
                 FilterChip(t == tab, { tab = t }, { Text(t.label) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
             }
         }
@@ -75,10 +85,14 @@ fun LibraryScreen(onOpen: (type: String, id: String) -> Unit) {
         when (tab) {
             LibTab.LIBRARY -> {
                 if (items.isEmpty()) { Message("Your library is empty.\nOpen a movie or series and tap \"Add to library\"."); return@Column }
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(null to "All", "movie" to "Movies", "series" to "Series").forEach { (v, l) ->
-                        FilterChip(filter == v, { filter = v }, { Text(l) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+                // Filters: All / Movies / Series / your categories (long-press a category to rename or delete it).
+                androidx.compose.foundation.lazy.LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(listOf(null to "All", "movie" to "Movies", "series" to "Series") + categories.keys.map { "cat:$it" to it }) { (v, l) ->
+                        Box(Modifier.combinedClickable(onClick = { filter = v }, onLongClick = { if (v?.startsWith("cat:") == true) editCategory = l })) {
+                            FilterChip(filter == v, { filter = v }, { Text(l) }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+                        }
                     }
+                    item { androidx.compose.material3.AssistChip(onClick = { newCategory = true }, label = { Text("+ Category") }) }
                 }
                 val now = System.currentTimeMillis()
                 LazyVerticalGrid(
@@ -87,11 +101,20 @@ fun LibraryScreen(onOpen: (type: String, id: String) -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    items(items.filter { filter == null || it.type == filter }, key = { it.id }) { item ->
+                    val f = filter
+                    val shown = when {
+                        f == null -> items
+                        f.startsWith("cat:") -> items.filter { it.id in (categories[f.removePrefix("cat:")] ?: emptySet()) }
+                        else -> items.filter { it.type == f }
+                    }
+                    items(shown, key = { it.id }) { item ->
                         val next = releases.firstOrNull { it.metaId == item.id && it.releasedAt > now }
-                        Poster(item.poster, item.name, next?.let { "Next: ${it.code} ${dayLabel(it.releasedAt)}" }, width = 108.dp) {
-                            onOpen(item.type, item.id)
-                        }
+                        Poster(
+                            item.poster, item.name, next?.let { "Next: ${it.code} ${dayLabel(it.releasedAt)}" }, width = 108.dp,
+                            downloaded = downloads.any { it.metaId == item.id && it.status == app.kinostash.android.downloads.DownloadStatus.COMPLETED },
+                            watched = item.type == "movie" && historyEntries.any { it.videoId == item.id && it.finished },
+                            onLongClick = { menuFor = item },
+                        ) { onOpen(item.type, item.id) }
                     }
                 }
             }
@@ -108,10 +131,86 @@ fun LibraryScreen(onOpen: (type: String, id: String) -> Unit) {
                 }
                 ReleaseList(list, onOpen)
             }
+            LibTab.HISTORY -> HistoryTab(onOpen, onSearch)
             LibTab.NEW -> {
                 val list = App.instance.upcoming.recent(days = 14)
                 if (list.isEmpty()) { Message(if (refreshing) "Checking…" else "No new episodes in the last two weeks."); return@Column }
                 ReleaseList(list, onOpen)
+            }
+        }
+    }
+    menuFor?.let { m -> TitleMenu(m.type, m.id, m.name, m.poster) { menuFor = null } }
+    if (newCategory) CategoryNameDialog("New category", "") { name -> if (name != null) App.instance.library.createCategory(name); newCategory = false }
+    editCategory?.let { c ->
+        CategoryNameDialog("Rename or delete \"$c\"", c, onDelete = { App.instance.library.deleteCategory(c); editCategory = null; filter = null }) { name ->
+            if (name != null && name != c) { App.instance.library.renameCategory(c, name); filter = "cat:$name" }
+            editCategory = null
+        }
+    }
+}
+
+@Composable
+private fun CategoryNameDialog(title: String, initial: String, onDelete: (() -> Unit)? = null, onDone: (String?) -> Unit) {
+    var name by remember { mutableStateOf(initial) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(title) },
+        text = { androidx.compose.material3.OutlinedTextField(name, { name = it }, singleLine = true, placeholder = { Text("e.g. Anime, Watch later") }) },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onDone(name.trim()) }) { Text("Save") } },
+        dismissButton = {
+            Row {
+                if (onDelete != null) androidx.compose.material3.TextButton(onClick = onDelete) { Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFFF8A80)) }
+                androidx.compose.material3.TextButton(onClick = { onDone(null) }) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun HistoryTab(onOpen: (String, String) -> Unit, onSearch: (String) -> Unit) {
+    val watched by App.instance.history.entries.collectAsState()
+    val searches by App.instance.searches.items.collectAsState()
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { SectionTitle("Watch history") }
+        if (watched.isEmpty()) item { Text("Nothing watched yet.", color = Muted, modifier = Modifier.padding(horizontal = 16.dp)) }
+        items(watched.sortedByDescending { it.updatedAt }.take(100), key = { "w" + it.videoId }) { e ->
+            Row(
+                Modifier.fillMaxWidth().clickable { onOpen(e.type, e.metaId) }.padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.width(48.dp).height(72.dp).clip(RoundedCornerShape(6.dp)).background(Surface2)) {
+                    AsyncImage(e.poster, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(e.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    e.label?.let { Text(it, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    Text(
+                        (if (e.finished) "Watched" else "${(e.progress * 100).toInt()}% watched") + " · " + timeLabel(e.updatedAt),
+                        fontSize = 12.sp, color = Muted,
+                    )
+                }
+                androidx.compose.material3.IconButton(onClick = { App.instance.history.setWatched(listOf(e), false) }) {
+                    androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.Close, "Remove", tint = Muted)
+                }
+            }
+        }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SectionTitle("Search history", Modifier.weight(1f))
+                if (searches.isNotEmpty()) androidx.compose.material3.TextButton(onClick = { App.instance.searches.clear() }) { Text("Clear") }
+            }
+        }
+        if (searches.isEmpty()) item { Text("No searches yet.", color = Muted, modifier = Modifier.padding(horizontal = 16.dp)) }
+        items(searches, key = { "s$it" }) { q ->
+            Row(Modifier.fillMaxWidth().clickable { onSearch(q) }.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.History, null, tint = Muted)
+                Spacer(Modifier.width(12.dp))
+                Text(q, modifier = Modifier.weight(1f))
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Outlined.Close, "Remove", tint = Muted,
+                    modifier = Modifier.clickable { App.instance.searches.remove(q) },
+                )
             }
         }
     }

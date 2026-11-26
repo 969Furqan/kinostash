@@ -38,6 +38,7 @@ data class MetaPreview(
     val name: String,
     val poster: String?,
     val releaseInfo: String?,
+    val imdbRating: String? = null,
 )
 
 data class Video(
@@ -68,6 +69,8 @@ data class MetaDetail(
     val videos: List<Video>,
     /** e.g. "Continuing" or "Ended" for series. */
     val status: String? = null,
+    val cast: List<String> = emptyList(),
+    val director: List<String> = emptyList(),
 )
 
 /** A stream from a stream addon: a torrent ([infoHash]) or a direct link ([url]). */

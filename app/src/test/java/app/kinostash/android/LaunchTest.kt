@@ -7,6 +7,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performScrollTo
 import app.kinostash.android.ui.MainActivity
 import org.junit.Rule
 import org.junit.Test
@@ -29,12 +30,12 @@ class LaunchTest {
     @Test
     fun allTabsOpen() {
         settle(15_000) // default addons + catalogs load from the network
-        for (tab in listOf("Search", "Library", "Downloads", "Settings", "Home")) {
+        for (tab in listOf("Library", "Downloads", "Settings", "Home")) {
             rule.onAllNodesWithText(tab).onFirst().performClick()
             settle(2_000)
         }
         // Search for real (several catalogs return results at once)
-        rule.onAllNodesWithText("Search").onFirst().performClick(); settle(1_000)
+        rule.onAllNodesWithText("Home").onFirst().performClick(); settle(1_000)
         rule.onNode(hasSetTextAction()).performTextInput("breaking bad")
         settle(10_000)
         rule.onAllNodesWithText("Popular · Movie", substring = true).onFirst().assertExists()
@@ -46,13 +47,19 @@ class LaunchTest {
         rule.onAllNodesWithText("El Camino", substring = true).onFirst().assertExists() // saved title shows in the library
         // App updates section: options exist and a real check against GitHub Releases returns a result
         rule.onAllNodesWithText("Settings").onFirst().performClick(); settle(1_000)
-        rule.onAllNodesWithText("App updates").onFirst().assertExists()
+        rule.onAllNodesWithText("App updates").onFirst().performScrollTo().performClick(); settle(1_000)
         rule.onAllNodesWithText("Check for updates automatically").onFirst().assertExists()
         rule.onAllNodesWithText("Download updates automatically on Wi-Fi").onFirst().assertExists()
-        rule.onAllNodesWithText("Check now").onFirst().performClick(); settle(8_000)
+        rule.onAllNodesWithText("Check now").onFirst().performScrollTo().performClick(); settle(8_000)
         // This build is 0.3.1 and the latest published release is 0.3.0, so it must report up to date.
         rule.onAllNodesWithText("You have the latest version.").onFirst().assertExists()
         rule.onAllNodesWithText("Last checked", substring = true).onFirst().assertExists()
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }; settle(500)
+        // Every settings category opens
+        for (page in listOf("General", "Player", "Subtitles", "Downloads", "Library & notifications", "Stremio account", "Addons", "Streaming server", "About")) {
+            rule.onAllNodesWithText(page).onFirst().performScrollTo().performClick(); settle(700)
+            rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }; settle(300)
+        }
         // Library sub-tabs
         rule.onAllNodesWithText("Library").onFirst().performClick(); settle(1_000)
         rule.onAllNodesWithText("Upcoming").onFirst().performClick(); settle(2_000)

@@ -15,7 +15,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
@@ -136,9 +135,11 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** A search to run when Home opens (e.g. tapped in search history). */
+object PendingSearch { @Volatile var query: String? = null }
+
 object Routes {
     const val HOME = "home"
-    const val SEARCH = "search"
     const val DOWNLOADS = "downloads"
     const val LIBRARY = "library"
     const val SETTINGS = "settings"
@@ -158,7 +159,6 @@ private fun Root(openDownloadsSignal: Int, openLibrarySignal: Int, openSettingsS
     val route = entry?.destination?.route
     val tabs = listOf(
         Triple(Routes.HOME, "Home", Icons.Outlined.Home),
-        Triple(Routes.SEARCH, "Search", Icons.Outlined.Search),
         Triple(Routes.LIBRARY, "Library", Icons.Outlined.VideoLibrary),
         Triple(Routes.DOWNLOADS, "Downloads", Icons.Outlined.Download),
         Triple(Routes.SETTINGS, "Settings", Icons.Outlined.Settings),
@@ -181,11 +181,20 @@ private fun Root(openDownloadsSignal: Int, openLibrarySignal: Int, openSettingsS
             }
         },
     ) { pad ->
-        NavHost(nav, startDestination = Routes.HOME, modifier = Modifier.padding(pad)) {
+        val start = when (App.instance.settings.startPage) {
+            "library" -> Routes.LIBRARY
+            "downloads" -> Routes.DOWNLOADS
+            else -> Routes.HOME
+        }
+        NavHost(nav, startDestination = start, modifier = Modifier.padding(pad)) {
             composable(Routes.HOME) { HomeScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
-            composable(Routes.SEARCH) { SearchScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
             composable(Routes.DOWNLOADS) { DownloadsScreen() }
-            composable(Routes.LIBRARY) { LibraryScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
+            composable(Routes.LIBRARY) {
+                LibraryScreen(
+                    onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) },
+                    onSearch = { q -> PendingSearch.query = q; nav.tab(Routes.HOME) },
+                )
+            }
             composable(Routes.SETTINGS) { SettingsScreen() }
             composable(Routes.DETAIL) { e ->
                 val type = e.arguments?.getString("type")!!

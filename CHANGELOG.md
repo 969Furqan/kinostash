@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0
+**Player**
+- Double-tap the left/right side to skip; keep tapping to skip further (step and maximum in Settings → Player).
+- Swipe up/down on the left for brightness and on the right for volume.
+- Buffering now shows in the middle of the screen with the peer count and speed, and a play/pause button.
+- Change the source (torrent) while watching; it continues from the same moment.
+- Subtitle styling: default language, size, text colour, background, outline, position and delay (also adjustable while watching).
+- Audio track picker, playback speed, fit/zoom/stretch, "Resumed at … · Start over".
+- Open streams and downloads in VLC, MX Player, mpv or Just Player (Settings → Player).
+
+**Titles and episodes**
+- Episodes and movies show when they're downloaded (and download progress); tapping a downloaded one plays it straight away.
+- Long-press an episode, a season's menu or a title to mark it watched / not watched, download it or add it to a category.
+- "Download season" and "Download best" pick your preferred quality (falling back to the next best) with the most seeders.
+- Movies show their entry (progress, watched, downloaded), director and cast. IMDb ratings on posters.
+
+**App**
+- Search bar at the top of Home (the separate Search tab is gone); recent searches as chips.
+- Library: your own categories, and a History tab with watch and search history.
+- Settings are organised into categories; choose which page the app opens on and your preferred quality.
+- About lists the developer and contact.
+
 ## 0.3.1
 - **Update settings**: Settings → App updates is now at the top, with "Check now", the last-checked time,
   automatic checks (every launch / daily / weekly), update notifications even when the app is closed,

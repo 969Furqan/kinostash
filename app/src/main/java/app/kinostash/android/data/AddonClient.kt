@@ -94,7 +94,7 @@ object AddonClient {
         return (0 until arr.length()).mapNotNull { i ->
             val m = arr.getJSONObject(i)
             val id = m.optStr("id") ?: return@mapNotNull null
-            MetaPreview(id, m.optString("type", c.type), m.optString("name"), m.optStr("poster"), m.optStr("releaseInfo"))
+            MetaPreview(id, m.optString("type", c.type), m.optString("name"), m.optStr("poster"), m.optStr("releaseInfo"), m.optStr("imdbRating"))
         }
     }
 
@@ -134,6 +134,8 @@ object AddonClient {
             imdbRating = m.optStr("imdbRating"),
             videos = videos,
             status = m.optStr("status"),
+            cast = m.optJSONArray("cast").strings(),
+            director = m.optJSONArray("director").strings(),
         )
     }
 

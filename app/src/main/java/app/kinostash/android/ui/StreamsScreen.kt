@@ -84,6 +84,29 @@ fun StreamsScreen(type: String, metaId: String, videoId: String, onBack: () -> U
         val list = streams
         if (list == null) { Loading(); return@Column }
         if (list.isEmpty()) { Message("No streams found. Add a stream addon (e.g. Torrentio) in Settings."); return@Column }
+        val best = app.kinostash.android.data.StreamPicker.pick(list, App.instance.settings.quality)
+        if (best != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Button(
+                    onClick = { PlayerActivity.start(ctx, request(best)) },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Accent),
+                    modifier = Modifier.weight(1f),
+                ) { Icon(Icons.Outlined.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play best · ${best.quality ?: "auto"}") }
+                androidx.compose.material3.OutlinedButton(
+                    onClick = {
+                        OfflineDownloads.enqueue(
+                            ctx, best,
+                            DownloadMeta(
+                                title = title, poster = meta?.poster, metaType = type, metaId = metaId, videoId = videoId,
+                                showName = meta?.name ?: title, season = video?.season, episode = video?.episode, episodeTitle = video?.title,
+                            ),
+                        )
+                        Toast.makeText(ctx, "Downloading ${best.quality ?: ""} · ${best.seeders ?: 0} seeders", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) { Icon(Icons.Outlined.Download, null); Spacer(Modifier.width(4.dp)); Text("Download best") }
+            }
+        }
         val qualities = QUALITY_ORDER.filter { q -> list.any { it.quality == q } }
         if (qualities.size > 1) {
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

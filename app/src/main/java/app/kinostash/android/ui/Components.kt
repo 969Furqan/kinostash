@@ -1,7 +1,12 @@
 package app.kinostash.android.ui
 
+import androidx.compose.material.icons.outlined.DownloadDone
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun Poster(
     url: String?,
@@ -35,11 +41,27 @@ fun Poster(
     subtitle: String? = null,
     width: Dp = 112.dp,
     progress: Float? = null,
+    rating: String? = null,
+    downloaded: Boolean = false,
+    watched: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    Column(Modifier.width(width).clickable(onClick = onClick)) {
+    Column(Modifier.width(width).combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(10.dp)).background(Surface2)) {
             AsyncImage(model = url, contentDescription = title, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            rating?.takeIf { it.isNotBlank() && it != "0" }?.let {
+                Text(
+                    "★ $it", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1C1300),
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).clip(RoundedCornerShape(4.dp)).background(Accent).padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
+            if (downloaded || watched) {
+                Row(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                    if (downloaded) Badge(androidx.compose.material.icons.Icons.Outlined.DownloadDone, "Downloaded")
+                    if (watched) Badge(androidx.compose.material.icons.Icons.Outlined.Check, "Watched")
+                }
+            }
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress },
@@ -51,6 +73,13 @@ fun Poster(
         Spacer(Modifier.height(6.dp))
         Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         subtitle?.let { Text(it, fontSize = 11.sp, color = Muted, maxLines = 1) }
+    }
+}
+
+@Composable
+fun Badge(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String) {
+    Box(Modifier.padding(start = 3.dp).size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xCC000000)), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.Icon(icon, desc, tint = Accent, modifier = Modifier.size(13.dp))
     }
 }
 

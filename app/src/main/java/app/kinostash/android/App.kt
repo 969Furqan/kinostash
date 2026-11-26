@@ -23,6 +23,8 @@ class App : Application() {
         private set
     lateinit var settings: app.kinostash.android.data.AppSettings
         private set
+    lateinit var searches: app.kinostash.android.data.SearchHistory
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -36,6 +38,7 @@ class App : Application() {
         library = app.kinostash.android.data.Library(this)
         upcoming = app.kinostash.android.data.Upcoming(this, addons, library)
         settings = app.kinostash.android.data.AppSettings(this)
+        searches = app.kinostash.android.data.SearchHistory(this)
         OfflineDownloads.init(this)
         runCatching { app.kinostash.android.data.EpisodeNotifier.schedule(this) }
         app.kinostash.android.update.AppUpdater.init(this)

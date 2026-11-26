@@ -1,6 +1,18 @@
 package app.kinostash.android.ui
 
 import android.content.Intent
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.ClosedCaption
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.Tune
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -54,24 +66,69 @@ import app.kinostash.android.BuildConfig
 import app.kinostash.android.server.ServerState
 import kotlinx.coroutines.launch
 
+private enum class SettingsPage(val title: String, val subtitle: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    GENERAL("General", "Start page, preferred quality", androidx.compose.material.icons.Icons.Outlined.Tune),
+    PLAYER("Player", "Gestures, seeking, external players", androidx.compose.material.icons.Icons.Outlined.PlayCircle),
+    SUBTITLES("Subtitles", "Language, size, colours, position, delay", androidx.compose.material.icons.Icons.Outlined.ClosedCaption),
+    DOWNLOADS("Downloads", "Wi-Fi only, storage", androidx.compose.material.icons.Icons.Outlined.Download),
+    LIBRARY("Library & notifications", "New-episode alerts", androidx.compose.material.icons.Icons.Outlined.Notifications),
+    UPDATES("App updates", "Check now, automatic updates", androidx.compose.material.icons.Icons.Outlined.SystemUpdate),
+    ACCOUNT("Stremio account", "Sign in, import addons and library", androidx.compose.material.icons.Icons.Outlined.AccountCircle),
+    ADDONS("Addons", "Install, order and remove addons", androidx.compose.material.icons.Icons.Outlined.Extension),
+    SERVER("Streaming server", "Status, version, log", androidx.compose.material.icons.Icons.Outlined.Dns),
+    ABOUT("About", "Version, developer, licences", androidx.compose.material.icons.Icons.Outlined.Info),
+}
+
 @Composable
 fun SettingsScreen() {
+    var page by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-        UpdatesCard()
-        AccountCard()
-        AddonsCard()
-        NotificationsCard()
-        ServerCard()
-        AboutCard()
+        val p = page
+        if (p == null) {
+            Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+            SettingsPage.entries.forEach { sp ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Surface1),
+                    modifier = Modifier.fillMaxWidth().clickable { page = sp },
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(sp.icon, null, tint = Accent)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(sp.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                            Text(sp.subtitle, fontSize = 12.sp, color = Muted)
+                        }
+                        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, tint = Muted)
+                    }
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { page = null }) { Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
+                Text(p.title, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            when (p) {
+                SettingsPage.GENERAL -> GeneralSettings()
+                SettingsPage.PLAYER -> PlayerSettings()
+                SettingsPage.SUBTITLES -> SubtitleSettings()
+                SettingsPage.DOWNLOADS -> DownloadSettings()
+                SettingsPage.LIBRARY -> NotificationsCard()
+                SettingsPage.UPDATES -> UpdatesCard()
+                SettingsPage.ACCOUNT -> AccountCard()
+                SettingsPage.ADDONS -> AddonsCard()
+                SettingsPage.SERVER -> ServerCard()
+                SettingsPage.ABOUT -> AboutCard()
+            }
+        }
     }
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Surface1), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
@@ -315,7 +372,7 @@ private fun UpdatesCard() {
 }
 
 @Composable
-private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 14.sp)
@@ -351,14 +408,24 @@ fun UpdateStatus(state: app.kinostash.android.update.UpdateState) {
 
 @Composable
 private fun AboutCard() {
-    Section("About") {
-        Text("Kinostash ${BuildConfig.VERSION_NAME}", fontSize = 14.sp)
+    val ctx = LocalContext.current
+    Section("Kinostash ${BuildConfig.VERSION_NAME}") {
+        Text("Developed by Furqan Azhar", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        androidx.compose.material3.TextButton(onClick = {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:$DEV_EMAIL")).putExtra(Intent.EXTRA_SUBJECT, "Kinostash")) }
+        }) { Text("Email: $DEV_EMAIL", color = Accent) }
+        androidx.compose.material3.TextButton(onClick = {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/${BuildConfig.UPDATE_REPO}"))) }
+        }) { Text("Source code on GitHub", color = Accent) }
+    }
+    Section("Licences") {
         Text(
-            "Open source. Not affiliated with Stremio. Uses Stremio addons and Stremio's streaming server " +
+            "Kinostash is open source (MIT). Not affiliated with Stremio. It uses Stremio addons and Stremio's streaming server " +
                 "(downloaded from Stremio at runtime), nodejs-mobile (MIT) and AndroidX Media3 (Apache-2.0). " +
                 "Only stream and download content you have the right to.",
             color = Muted, fontSize = 12.sp,
         )
-        Spacer(Modifier.height(2.dp))
     }
 }
+
+private const val DEV_EMAIL = "969.furqan@gmail.com"
