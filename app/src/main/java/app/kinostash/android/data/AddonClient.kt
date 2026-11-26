@@ -117,6 +117,9 @@ object AddonClient {
             }
         }
         videos.sortWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }))
+        // Lists are keyed by video id; some addons repeat entries.
+        val unique = videos.distinctBy { it.id }
+        videos.clear(); videos.addAll(unique)
         return MetaDetail(
             id = m.optString("id", id),
             type = m.optString("type", type),

@@ -74,10 +74,27 @@ class AddonRepository(context: Context) {
     fun homeCatalogs(): List<Pair<Addon, CatalogDef>> =
         _addons.value.flatMap { a -> a.catalogs.filter { !it.requiresExtra }.map { a to it } }
 
-    suspend fun search(query: String): List<Pair<String, List<MetaPreview>>> = coroutineScope {
+    /** One result section per searchable catalog. */
+    data class SearchSection(val key: String, val title: String, val items: List<MetaPreview>)
+
+    suspend fun search(query: String): List<SearchSection> = coroutineScope {
         _addons.value.flatMap { a -> a.catalogs.filter { it.supportsSearch }.map { a to it } }
-            .map { (a, c) -> async { runCatching { "${a.name} · ${c.name}" to AddonClient.catalog(a, c, search = query) }.getOrNull() } }
-            .awaitAll().filterNotNull().filter { it.second.isNotEmpty() }
+            .map { (a, c) ->
+                async {
+                    runCatching {
+                        // Several catalogs share a name (e.g. Cinemeta's "Popular" for movies and for
+                        // series), so the key includes the addon, type and catalog id.
+                        val type = c.type.replaceFirstChar { it.uppercase() }
+                        SearchSection(
+                            key = "${a.transportUrl}|${c.type}|${c.id}",
+                            title = "${c.name} · $type · ${a.name}",
+                            items = AddonClient.catalog(a, c, search = query).distinctBy { it.type + it.id },
+                        )
+                    }.getOrNull()
+                }
+            }
+            .awaitAll().filterNotNull().filter { it.items.isNotEmpty() }
+            .distinctBy { it.key }
     }
 
     suspend fun meta(type: String, id: String): MetaDetail? {

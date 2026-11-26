@@ -4,6 +4,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.assertIsDisplayed
 import app.kinostash.android.ui.MainActivity
 import org.junit.Rule
 import org.junit.Test
@@ -30,6 +33,17 @@ class LaunchTest {
             rule.onAllNodesWithText(tab).onFirst().performClick()
             settle(2_000)
         }
+        // Search for real (several catalogs return results at once)
+        rule.onAllNodesWithText("Search").onFirst().performClick(); settle(1_000)
+        rule.onNode(hasSetTextAction()).performTextInput("breaking bad")
+        settle(10_000)
+        rule.onAllNodesWithText("Popular · Movie", substring = true).onFirst().assertExists()
+        rule.onAllNodesWithText("El Camino", substring = true).onFirst().performClick(); settle(8_000) // details page
+        rule.onAllNodesWithText("Add to library").onFirst().performClick(); settle(1_000)
+        rule.onAllNodesWithText("In library").onFirst().assertExists()
+        rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }; settle(1_000)
+        rule.onAllNodesWithText("Library").onFirst().performClick(); settle(2_000)
+        rule.onAllNodesWithText("El Camino", substring = true).onFirst().assertExists() // saved title shows in the library
         // Library sub-tabs
         rule.onAllNodesWithText("Library").onFirst().performClick(); settle(1_000)
         rule.onAllNodesWithText("Upcoming").onFirst().performClick(); settle(2_000)

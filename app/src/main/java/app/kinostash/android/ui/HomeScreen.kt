@@ -46,14 +46,14 @@ fun HomeScreen(onOpen: (type: String, id: String) -> Unit) {
             item { SectionTitle("Continue watching") }
             item {
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(continueWatching, key = { it.videoId }) { e ->
+                    items(continueWatching, key = { it.metaId }) { e ->
                         Poster(e.poster, e.name, e.label, progress = e.progress) { onOpen(e.type, e.metaId) }
                     }
                 }
             }
         }
         if (catalogs.isEmpty()) item { Box(Modifier.fillMaxWidth().height(300.dp)) { Loading() } }
-        items(catalogs, key = { (a, c) -> "${a.transportUrl}/${c.type}/${c.id}" }) { (a, c) -> CatalogRow(a, c, onOpen) }
+        items(catalogs.distinctBy { (a, c) -> "${a.transportUrl}|${c.type}|${c.id}" }, key = { (a, c) -> "${a.transportUrl}|${c.type}|${c.id}" }) { (a, c) -> CatalogRow(a, c, onOpen) }
     }
 }
 
@@ -61,7 +61,7 @@ fun HomeScreen(onOpen: (type: String, id: String) -> Unit) {
 private fun CatalogRow(addon: Addon, catalog: CatalogDef, onOpen: (String, String) -> Unit) {
     var items by remember { mutableStateOf<List<MetaPreview>?>(null) }
     LaunchedEffect(addon.transportUrl, catalog.id, catalog.type) {
-        items = runCatching { AddonClient.catalog(addon, catalog) }.getOrDefault(emptyList())
+        items = runCatching { AddonClient.catalog(addon, catalog).distinctBy { it.type + it.id } }.getOrDefault(emptyList())
     }
     val list = items
     if (list != null && list.isEmpty()) return // failed or empty: hide the row

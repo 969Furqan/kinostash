@@ -28,13 +28,12 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import app.kinostash.android.App
-import app.kinostash.android.data.MetaPreview
 import kotlinx.coroutines.delay
 
 @Composable
 fun SearchScreen(onOpen: (type: String, id: String) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<Pair<String, List<MetaPreview>>>?>(emptyList()) }
+    var results by remember { mutableStateOf<List<app.kinostash.android.data.AddonRepository.SearchSection>?>(emptyList()) }
     val focus = LocalFocusManager.current
 
     LaunchedEffect(query) {
@@ -60,10 +59,10 @@ fun SearchScreen(onOpen: (type: String, id: String) -> Unit) {
             query.isNotBlank() && r.isEmpty() -> Message("Nothing found")
             r.isEmpty() -> Message("Search across all your addons")
             else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
-                items(r, key = { it.first }) { (title, list) ->
-                    SectionTitle(title)
+                items(r, key = { it.key }) { section ->
+                    SectionTitle(section.title)
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(list, key = { it.type + it.id }) { m -> Poster(m.poster, m.name, m.releaseInfo) { onOpen(m.type, m.id) } }
+                        items(section.items, key = { it.type + it.id }) { m -> Poster(m.poster, m.name, m.releaseInfo) { onOpen(m.type, m.id) } }
                     }
                 }
             }
