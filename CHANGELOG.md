@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+**Stremio account**
+- Create a Stremio account right in Kinostash (Settings → Stremio account → Create account).
+- Signing in or signing up adds Torrentio, OpenSubtitles and Cinemeta (and the addons you already use here)
+  to your Stremio account, then imports the account's addons.
+- Your library syncs both ways: titles you add or remove in Kinostash update your Stremio library, titles in
+  Stremio are imported, and titles removed in Stremio disappear here when the app starts. "Sync now" any time.
+
 ## 0.4.0
 **Player**
 - Double-tap the left/right side to skip; keep tapping to skip further (step and maximum in Settings → Player).

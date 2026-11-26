@@ -6,9 +6,13 @@ import app.kinostash.android.data.StremioAccount
 import app.kinostash.android.data.WatchHistory
 import app.kinostash.android.downloads.OfflineDownloads
 import app.kinostash.android.server.StremioServer
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 class App : Application() {
+    /** For app-wide background work (sync etc.). */
+    val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
     lateinit var addons: AddonRepository
         private set
     lateinit var account: StremioAccount
@@ -42,6 +46,13 @@ class App : Application() {
         OfflineDownloads.init(this)
         runCatching { app.kinostash.android.data.EpisodeNotifier.schedule(this) }
         app.kinostash.android.update.AppUpdater.init(this)
+        // Stremio account: push library changes, and pull the account's library on start.
+        library.onChange = { item, added ->
+            if (account.isSignedIn) appScope.launch { runCatching { account.pushLibrary(item, removed = !added) } }
+        }
+        if (account.isSignedIn) appScope.launch {
+            runCatching { val (items, removed) = account.librarySnapshot(); library.applyRemote(items, removed) }
+        }
         runCatching { app.kinostash.android.update.UpdateWorker.schedule(this) }
     }
 

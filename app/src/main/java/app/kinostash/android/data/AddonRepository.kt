@@ -37,6 +37,9 @@ class AddonRepository(context: Context) {
         }
     }
 
+    /** Installed addons as (manifest URL, raw manifest), e.g. to add them to a Stremio account. */
+    fun rawEntries(): List<Pair<String, JSONObject>> = entries
+
     /** First launch: install the defaults (Cinemeta for catalogs/metadata, Torrentio, OpenSubtitles). */
     suspend fun ensureDefaults() {
         if (_addons.value.isNotEmpty()) return

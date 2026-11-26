@@ -11,6 +11,9 @@ data class LibraryItem(val id: String, val type: String, val name: String, val p
 
 /** Your saved movies and series (stored on the phone; can be imported from a Stremio account). */
 class Library(context: Context) {
+    /** Called after a title is added (true) or removed (false) by the user, e.g. to sync with Stremio. */
+    var onChange: ((LibraryItem, Boolean) -> Unit)? = null
+
     private val file = File(context.filesDir, "library.json")
     private val _items = MutableStateFlow(load())
     val items: StateFlow<List<LibraryItem>> = _items
@@ -67,11 +70,14 @@ class Library(context: Context) {
     fun add(item: LibraryItem) {
         if (contains(item.id)) return
         commit(listOf(item) + _items.value)
+        onChange?.invoke(item, true)
     }
 
     @Synchronized
     fun remove(id: String) {
+        val removed = _items.value.find { it.id == id }
         commit(_items.value.filterNot { it.id == id })
+        removed?.let { onChange?.invoke(it, false) }
         if (_categories.value.values.any { id in it }) saveCategories(_categories.value.mapValues { it.value - id })
     }
 
@@ -82,6 +88,14 @@ class Library(context: Context) {
         val new = items.filter { it.id !in have }
         if (new.isNotEmpty()) commit(_items.value + new)
         return new.size
+    }
+
+    /** Apply your Stremio library: add its titles and drop the ones removed there (no push back). */
+    @Synchronized
+    fun applyRemote(items: List<LibraryItem>, removedIds: Set<String>): Int {
+        val added = merge(items)
+        if (removedIds.isNotEmpty() && _items.value.any { it.id in removedIds }) commit(_items.value.filterNot { it.id in removedIds })
+        return added
     }
 
     private fun commit(list: List<LibraryItem>) {

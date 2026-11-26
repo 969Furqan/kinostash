@@ -144,63 +144,102 @@ private fun AccountCard() {
     val account = App.instance.account
     val email by account.email.collectAsState()
     var busy by remember { mutableStateOf(false) }
-    Section("Stremio account (optional)") {
-        if (email != null) {
-            Text("Signed in as $email", color = Muted, fontSize = 13.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    enabled = !busy,
-                    colors = ButtonDefaults.buttonColors(containerColor = Accent),
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            val r = runCatching { App.instance.addons.replaceAll(account.addons()) }
-                            busy = false
-                            Toast.makeText(ctx, if (r.isSuccess) "Addons imported from your account" else "Import failed: ${r.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                ) { Text("Import addons") }
-                OutlinedButton(
-                    enabled = !busy,
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            val r = runCatching { App.instance.library.merge(account.library()) }
-                            busy = false
-                            Toast.makeText(ctx, r.fold({ "Imported $it titles into your library" }, { "Import failed: ${it.message}" }), Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                ) { Text("Import library") }
+    var createMode by remember { mutableStateOf(false) }
+
+    fun runSync(after: String) {
+        scope.launch {
+            val r = runCatching { app.kinostash.android.data.AccountSync.afterSignIn() }
+            busy = false
+            val res = r.getOrNull()
+            val msg: String = if (res == null) {
+                "$after, but syncing failed: ${r.exceptionOrNull()?.message}"
+            } else buildString {
+                append(after).append(". ").append(res.addonsImported).append(" addons, ")
+                append(res.libraryImported).append(" titles imported")
+                if (res.libraryPushed > 0) append(", ").append(res.libraryPushed).append(" sent to Stremio")
+                if (res.addonsAddedToAccount > 0) append(", ").append(res.addonsAddedToAccount).append(" addons added to your account")
             }
-            Row {
+            Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    if (email != null) {
+        Section("Signed in") {
+            Text(email ?: "", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Your library stays in sync with Stremio: titles you add or remove here are updated in your Stremio account, " +
+                    "and changes made in Stremio come in when Kinostash starts.",
+                color = Muted, fontSize = 12.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !busy, colors = ButtonDefaults.buttonColors(containerColor = Accent), onClick = { busy = true; runSync("Synced") }) {
+                    Text(if (busy) "Syncing…" else "Sync now")
+                }
                 OutlinedButton(onClick = { account.logout() }) { Text("Sign out") }
             }
-        } else {
-            Text("Sign in to import your Stremio addons and library. Kinostash only stores the login token.", color = Muted, fontSize = 13.sp)
-            var mail by remember { mutableStateOf("") }
-            var pass by remember { mutableStateOf("") }
-            OutlinedTextField(mail, { mail = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-            OutlinedTextField(pass, { pass = it }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            Button(
-                enabled = !busy && mail.isNotBlank() && pass.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent),
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        val r = runCatching {
-                            account.login(mail.trim(), pass)
-                            App.instance.addons.replaceAll(account.addons())
-                            runCatching { App.instance.library.merge(account.library()) }
-                        }
-                        busy = false
-                        pass = ""
-                        Toast.makeText(ctx, if (r.isSuccess) "Signed in, addons imported" else "Sign-in failed: ${r.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
-                    }
-                },
-            ) { Text(if (busy) "Signing in…" else "Sign in") }
         }
+        return
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        androidx.compose.material3.FilterChip(!createMode, { createMode = false }, { Text("Sign in") },
+            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+        androidx.compose.material3.FilterChip(createMode, { createMode = true }, { Text("Create account") },
+            colors = androidx.compose.material3.FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+    }
+    var mail by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var pass2 by remember { mutableStateOf("") }
+    var agree by remember { mutableStateOf(false) }
+    var marketing by remember { mutableStateOf(false) }
+    Section(if (createMode) "Create a Stremio account" else "Sign in to Stremio") {
+        Text(
+            if (createMode) CREATE_HINT else SIGNIN_HINT,
+            color = Muted, fontSize = 12.sp,
+        )
+        OutlinedTextField(mail, { mail = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+        OutlinedTextField(pass, { pass = it }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        if (createMode) {
+            OutlinedTextField(pass2, { pass2 = it }, label = { Text("Repeat password") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                isError = pass2.isNotEmpty() && pass2 != pass)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(agree, { agree = it })
+                Text("I agree to Stremio's Terms of Service and Privacy Policy", fontSize = 13.sp, modifier = Modifier.weight(1f))
+            }
+            Row {
+                androidx.compose.material3.TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.stremio.com/tos"))) } }) { Text("Terms") }
+                androidx.compose.material3.TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.stremio.com/privacy"))) } }) { Text("Privacy Policy") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(marketing, { marketing = it })
+                Text("Send me Stremio news (optional)", fontSize = 13.sp)
+            }
+        }
+        val minLength = if (createMode) 6 else 1
+        val matches = !createMode || (pass == pass2 && agree)
+        val valid: Boolean = mail.contains("@") && pass.length >= minLength && matches
+        Button(
+            enabled = !busy && valid,
+            colors = ButtonDefaults.buttonColors(containerColor = Accent),
+            onClick = {
+                busy = true
+                scope.launch {
+                    val r = runCatching {
+                        if (createMode) account.register(mail.trim(), pass, marketing) else account.login(mail.trim(), pass)
+                    }
+                    pass = ""; pass2 = ""
+                    if (r.isSuccess) runSync(if (createMode) "Account created" else "Signed in")
+                    else {
+                        busy = false
+                        Toast.makeText(ctx, (if (createMode) "Sign-up failed: " else "Sign-in failed: ") + r.exceptionOrNull()?.message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+        ) { Text(if (busy) "Please wait…" else if (createMode) "Create account" else "Sign in") }
+        if (createMode && pass.isNotEmpty() && pass.length < 6) Text("Use at least 6 characters.", color = Muted, fontSize = 12.sp)
     }
 }
 
@@ -429,3 +468,7 @@ private fun AboutCard() {
 }
 
 private const val DEV_EMAIL = "969.furqan@gmail.com"
+
+private const val CREATE_HINT = "A free Stremio account syncs your library and addons with Stremio on your other devices. " +
+    "Torrentio, OpenSubtitles and Cinemeta are added to it automatically."
+private const val SIGNIN_HINT = "Imports your addons and library and keeps the library in sync. Kinostash only stores the login token."
