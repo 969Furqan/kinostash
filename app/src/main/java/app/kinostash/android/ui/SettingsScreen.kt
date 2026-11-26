@@ -64,6 +64,7 @@ fun SettingsScreen() {
         AddonsCard()
         NotificationsCard()
         ServerCard()
+        UpdatesCard()
         AboutCard()
     }
 }
@@ -231,6 +232,46 @@ private fun ServerCard() {
             val log = runCatching { server.logFile.readLines().takeLast(200).joinToString("\n") }.getOrDefault("(no log)")
             ctx.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, log), "Share server log"))
         }) { Text("Share server log") }
+    }
+}
+
+@Composable
+private fun UpdatesCard() {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val state by app.kinostash.android.update.AppUpdater.state.collectAsState()
+    Section("App updates") {
+        Text("Installed: Kinostash ${BuildConfig.VERSION_NAME}", fontSize = 14.sp)
+        UpdateStatus(state)
+        when (val s = state) {
+            is app.kinostash.android.update.UpdateState.Available -> Button(
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                onClick = { scope.launch { app.kinostash.android.update.AppUpdater.downloadAndInstall(ctx, s.release) } },
+            ) { Text("Download & install ${s.release.version}") }
+            is app.kinostash.android.update.UpdateState.Downloading,
+            is app.kinostash.android.update.UpdateState.Installing,
+            app.kinostash.android.update.UpdateState.Checking -> Unit
+            else -> OutlinedButton(onClick = { scope.launch { app.kinostash.android.update.AppUpdater.check(ctx) } }) { Text("Check for updates") }
+        }
+    }
+}
+
+@Composable
+fun UpdateStatus(state: app.kinostash.android.update.UpdateState) {
+    when (val s = state) {
+        app.kinostash.android.update.UpdateState.Checking -> Text("Checking…", color = Muted, fontSize = 13.sp)
+        app.kinostash.android.update.UpdateState.UpToDate -> Text("You have the latest version.", color = Muted, fontSize = 13.sp)
+        is app.kinostash.android.update.UpdateState.Available -> {
+            Text("Version ${s.release.version} is available (${app.kinostash.android.downloads.formatBytes(s.release.sizeBytes)}).", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (s.release.notes.isNotBlank()) Text(s.release.notes.take(1200), color = Muted, fontSize = 12.sp)
+        }
+        is app.kinostash.android.update.UpdateState.Downloading -> {
+            Text("Downloading ${s.release.version}… ${(s.progress * 100).toInt()}%", fontSize = 13.sp)
+            androidx.compose.material3.LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth(), color = Accent)
+        }
+        is app.kinostash.android.update.UpdateState.Installing -> Text("Installing… confirm in the system dialog. (The first time, Android asks you to allow installs from Kinostash.)", fontSize = 13.sp)
+        is app.kinostash.android.update.UpdateState.Failed -> Text(s.message, color = androidx.compose.ui.graphics.Color(0xFFFF8A80), fontSize = 13.sp)
+        app.kinostash.android.update.UpdateState.Idle -> Unit
     }
 }
 

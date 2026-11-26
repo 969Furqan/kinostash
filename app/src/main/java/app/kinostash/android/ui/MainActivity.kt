@@ -26,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Modifier
@@ -51,12 +52,31 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         lifecycleScope.launch { App.instance.addons.ensureDefaults() }
+        lifecycleScope.launch { app.kinostash.android.update.AppUpdater.checkIfDue(this@MainActivity) }
         OfflineDownloads.kick(this) // continue unfinished downloads
         handle(intent)
         val lastCrash = app.kinostash.android.CrashReporter.takeLastCrash()
         setContent {
             KinostashTheme {
                 Root(openDownloads.intValue, openLibrary.intValue)
+                // "Update available" prompt (from the daily check).
+                val update by app.kinostash.android.update.AppUpdater.state.collectAsState()
+                var dismissedUpdate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+                val avail = update as? app.kinostash.android.update.UpdateState.Available
+                if (avail != null && avail.release.version != dismissedUpdate) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { dismissedUpdate = avail.release.version },
+                        title = { Text("Update available: ${avail.release.version}") },
+                        text = { Text(avail.release.notes.ifBlank { "A new version of Kinostash is ready." }.take(1500)) },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = {
+                                dismissedUpdate = avail.release.version
+                                lifecycleScope.launch { app.kinostash.android.update.AppUpdater.downloadAndInstall(this@MainActivity, avail.release) }
+                            }) { Text("Update") }
+                        },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { dismissedUpdate = avail.release.version }) { Text("Later") } },
+                    )
+                }
                 var crash by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(lastCrash) }
                 crash?.let { text ->
                     androidx.compose.material3.AlertDialog(
