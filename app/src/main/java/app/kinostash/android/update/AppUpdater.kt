@@ -185,16 +185,57 @@ object AppUpdater {
         _state.value = ready?.copy(note = note) ?: if (note != null) UpdateState.Failed(note) else UpdateState.Idle
     }
 
-    private suspend fun fetchLatest(): AppRelease? = withContext(Dispatchers.IO) {
+    private class RateLimited : IOException("GitHub API rate limit")
+
+    /** GitHub's API first; when it refuses (60 requests/hour per IP, often shared on mobile networks), the website. */
+    private suspend fun fetchLatest(): AppRelease? = try {
+        fetchLatestFromApi()
+    } catch (e: RateLimited) {
+        fetchLatestFromWeb()
+    }
+
+    private val abi get() = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "armeabi-v7a" } ?: "universal"
+
+    /**
+     * No API needed: /releases/latest redirects to the newest tag, assets have predictable names
+     * (kinostash-<version>-<abi>.apk) and SHA256SUMS.txt provides the checksum.
+     */
+    private suspend fun fetchLatestFromWeb(): AppRelease? = withContext(Dispatchers.IO) {
+        val repo = "https://github.com/${BuildConfig.UPDATE_REPO}"
+        val noRedirect = http.newBuilder().followRedirects(false).followSslRedirects(false).build()
+        val location = noRedirect.newCall(Request.Builder().url("$repo/releases/latest").header("User-Agent", "Kinostash").build())
+            .execute().use { r -> r.header("Location") ?: if (r.code == 404) return@withContext null else throw IOException("HTTP ${r.code}") }
+        val tag = location.substringAfterLast("/tag/", "").ifBlank { return@withContext null }
+        val version = tag.removePrefix("v")
+        val base = "$repo/releases/download/$tag"
+        val sums = runCatching { downloadText("$base/SHA256SUMS.txt") }.getOrNull().orEmpty()
+            .lineSequence().map { it.trim().split(Regex("\\s+")) }.filter { it.size >= 2 }
+            .associate { it.last().trimStart('*') to it.first().lowercase() }
+        val name = listOf("kinostash-$version-$abi.apk", "kinostash-$version-universal.apk").firstOrNull { it in sums }
+            ?: throw IOException("No APK for this device in release $tag")
+        val url = "$base/$name"
+        val size = runCatching {
+            // HEAD isn't allowed on the storage redirect; a 1-byte range reports the full size.
+            http.newCall(Request.Builder().url(url).header("Range", "bytes=0-0").build()).execute()
+                .use { it.header("Content-Range")?.substringAfterLast('/')?.toLongOrNull() }
+        }.getOrNull() ?: 0L
+        val notes = runCatching {
+            val log = downloadText("https://raw.githubusercontent.com/${BuildConfig.UPDATE_REPO}/main/CHANGELOG.md")
+            log.substringAfter("## $version", "").substringBefore("\n## ").trim()
+        }.getOrDefault("")
+        AppRelease(version, notes, url, name, sums[name], size, "$repo/releases/tag/$tag")
+    }
+
+    private suspend fun fetchLatestFromApi(): AppRelease? = withContext(Dispatchers.IO) {
         val req = Request.Builder().url(API).header("Accept", "application/vnd.github+json").header("User-Agent", "Kinostash").build()
         val json = http.newCall(req).execute().use { r ->
             if (r.code == 404) return@withContext null // no releases yet
+            if (r.code == 403 || r.code == 429) throw RateLimited()
             if (!r.isSuccessful) throw IOException("HTTP ${r.code}")
             JSONObject(r.body?.string() ?: "{}")
         }
         val version = json.optString("tag_name").removePrefix("v").ifBlank { return@withContext null }
         val assets = json.optJSONArray("assets") ?: return@withContext null
-        val abi = Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "armeabi-v7a" } ?: "universal"
         var apk: JSONObject? = null
         var fallback: JSONObject? = null
         var sums: String? = null
@@ -225,7 +266,10 @@ object AppUpdater {
     }
 
     private fun downloadText(url: String): String =
-        http.newCall(Request.Builder().url(url).build()).execute().use { it.body?.string() ?: "" }
+        http.newCall(Request.Builder().url(url).build()).execute().use {
+            if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+            it.body?.string() ?: ""
+        }
 
     /** Download, verify and hand the update to the system installer. */
     suspend fun downloadAndInstall(ctx: Context, rel: AppRelease) {

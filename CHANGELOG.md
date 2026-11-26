@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Fixed "Couldn't check for updates: HTTP 403". GitHub's API allows only 60 checks per hour per network (often shared on mobile data); when it refuses, Kinostash now checks the GitHub releases page directly instead, still verifying the download's checksum and signature.
+
 ## 0.6.0
 
 - Download many episodes at once: long-press an episode → **Select**, tick as many as you like (across seasons too, or **Select season**), then **Download**. They join the queue and download two at a time; the rest wait their turn.
