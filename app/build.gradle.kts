@@ -20,9 +20,9 @@ android {
         applicationId = "app.kinostash.android"
         minSdk = 28
         targetSdk = 35
-        // Version comes from the release tag (CI passes VERSION_NAME=0.3.0); the code is derived from
+        // Version comes from the VERSION file at the repo root; the code is derived from
         // it (0.3.0 -> 300, 1.2.3 -> 10203) so every release is an upgrade for the in-app updater.
-        val vName = propOrEnv("VERSION_NAME") ?: "0.2.1"
+        val vName = propOrEnv("VERSION_NAME") ?: rootProject.file("VERSION").readText().trim()
         val vParts = vName.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 } + listOf(0, 0, 0)
         versionName = vName
         versionCode = propOrEnv("VERSION_CODE")?.toIntOrNull() ?: (vParts[0] * 10000 + vParts[1] * 100 + vParts[2])
