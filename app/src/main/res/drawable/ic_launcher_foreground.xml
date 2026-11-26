@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- film frame -->
+    <path android:fillColor="#FFFFB547"
+        android:pathData="M32,30h44a4,4 0,0 1,4 4v32a4,4 0,0 1,-4 4h-44a4,4 0,0 1,-4 -4v-32a4,4 0,0 1,4 -4z" />
+    <!-- sprocket holes -->
+    <path android:fillColor="#FF15161B"
+        android:pathData="M33,34h4v4h-4zM33,44h4v4h-4zM33,54h4v4h-4zM33,64h4v2h-4zM71,34h4v4h-4zM71,44h4v4h-4zM71,54h4v4h-4zM71,64h4v2h-4z" />
+    <!-- download arrow into the stash -->
+    <path android:fillColor="#FF15161B"
+        android:pathData="M51,38h6v12h6l-9,10l-9,-10h6z" />
+    <path android:fillColor="#FFFFB547" android:pathData="M36,76h36v4h-36z" />
+</vector>
