@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- Fixed "Playback error: ERROR_CODE_FAILED_RUNTIME_CHECK" on some releases (MKV files with Blu-ray/DVD image subtitles). The player now decodes those subtitles, and if a file's subtitles still can't be handled it automatically continues without them instead of stopping.
+- Playback errors now show the underlying reason, so reports are easier to diagnose.
+
 ## 0.5.0
 **Stremio account**
 - Create a Stremio account right in Kinostash (Settings → Stremio account → Create account).

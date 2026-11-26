@@ -77,6 +77,7 @@ class PlayerActivity : ComponentActivity() {
     private var torrentWatch: Job? = null
     private var addonSubs: List<SubtitleItem> = emptyList()
     private var currentUri: Uri? = null
+    private var retriedWithoutSubtitles = false
     private val settings get() = App.instance.settings
 
     // UI state (read by PlayerUi)
@@ -109,7 +110,7 @@ class PlayerActivity : ComponentActivity() {
             .setConnectTimeoutMs(30_000)
             .setReadTimeoutMs(120_000) // torrent pieces can take a while
             .setAllowCrossProtocolRedirects(true)
-        player = ExoPlayer.Builder(this)
+        player = ExoPlayer.Builder(this, KinostashRenderers(this))
             .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
             .build().also { p ->
                 p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().apply {
@@ -119,7 +120,14 @@ class PlayerActivity : ComponentActivity() {
                 }.build()
                 p.addListener(object : Player.Listener {
                     override fun onPlayerError(e: PlaybackException) {
-                        error.value = "Playback error: ${e.errorCodeName}"
+                        // A subtitle the player can't handle shouldn't stop the video: retry once without subtitles.
+                        if (e.errorCode == PlaybackException.ERROR_CODE_FAILED_RUNTIME_CHECK && !retriedWithoutSubtitles) {
+                            retriedWithoutSubtitles = true
+                            retryWithoutSubtitles()
+                            return
+                        }
+                        val cause = generateSequence(e.cause) { it.cause }.lastOrNull()
+                        error.value = "Playback error: ${e.errorCodeName}" + (cause?.message?.let { "\n${it.take(200)}" } ?: "")
                     }
                     override fun onPlaybackStateChanged(state: Int) {
                         isBuffering.value = state == Player.STATE_BUFFERING || state == Player.STATE_IDLE
@@ -222,6 +230,20 @@ class PlayerActivity : ComponentActivity() {
                 }
                 delay(1_000)
             }
+        }
+    }
+
+    private fun retryWithoutSubtitles() {
+        val uri = currentUri ?: return
+        val p = player ?: return
+        val pos = p.currentPosition
+        addonSubs = emptyList()
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+        status.value = "This file's subtitles aren't supported. Playing without subtitles…"
+        lifecycleScope.launch {
+            load(uri, pos)
+            delay(4_000)
+            if (error.value == null && status.value?.startsWith("This file") == true) status.value = null
         }
     }
 
