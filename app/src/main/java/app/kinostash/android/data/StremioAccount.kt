@@ -60,6 +60,22 @@ class StremioAccount(context: Context) {
         }
     }
 
+    /** Movies and series in your Stremio library. */
+    suspend fun library(): List<LibraryItem> {
+        val key = authKey ?: throw IOException("Not signed in")
+        val res = call(
+            "datastoreGet",
+            JSONObject().put("authKey", key).put("collection", "libraryItem").put("ids", org.json.JSONArray()).put("all", true),
+        )
+        val arr = res.optJSONArray("result") ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i ->
+            val o = arr.getJSONObject(i)
+            if (o.optBoolean("removed") || o.optBoolean("temp")) return@mapNotNull null
+            val type = o.optString("type").takeIf { it == "movie" || it == "series" } ?: return@mapNotNull null
+            LibraryItem(o.optString("_id"), type, o.optString("name"), o.optStr("poster"), System.currentTimeMillis())
+        }.filter { it.id.isNotBlank() }
+    }
+
     companion object {
         private const val API = "https://api.strem.io/api"
     }

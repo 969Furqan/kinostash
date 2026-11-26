@@ -62,6 +62,7 @@ fun SettingsScreen() {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
         AccountCard()
         AddonsCard()
+        NotificationsCard()
         ServerCard()
         AboutCard()
     }
@@ -99,11 +100,24 @@ private fun AccountCard() {
                             Toast.makeText(ctx, if (r.isSuccess) "Addons imported from your account" else "Import failed: ${r.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
                         }
                     },
-                ) { Text("Import my addons") }
+                ) { Text("Import addons") }
+                OutlinedButton(
+                    enabled = !busy,
+                    onClick = {
+                        busy = true
+                        scope.launch {
+                            val r = runCatching { App.instance.library.merge(account.library()) }
+                            busy = false
+                            Toast.makeText(ctx, r.fold({ "Imported $it titles into your library" }, { "Import failed: ${it.message}" }), Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                ) { Text("Import library") }
+            }
+            Row {
                 OutlinedButton(onClick = { account.logout() }) { Text("Sign out") }
             }
         } else {
-            Text("Sign in to import the addons you installed in Stremio. Kinostash only stores the login token.", color = Muted, fontSize = 13.sp)
+            Text("Sign in to import your Stremio addons and library. Kinostash only stores the login token.", color = Muted, fontSize = 13.sp)
             var mail by remember { mutableStateOf("") }
             var pass by remember { mutableStateOf("") }
             OutlinedTextField(mail, { mail = it }, label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -119,6 +133,7 @@ private fun AccountCard() {
                         val r = runCatching {
                             account.login(mail.trim(), pass)
                             App.instance.addons.replaceAll(account.addons())
+                            runCatching { App.instance.library.merge(account.library()) }
                         }
                         busy = false
                         pass = ""
@@ -169,6 +184,24 @@ private fun AddonsCard() {
         }
         if (addons.isEmpty()) {
             OutlinedButton(onClick = { scope.launch { repo.ensureDefaults() } }) { Text("Install default addons") }
+        }
+    }
+}
+
+@Composable
+private fun NotificationsCard() {
+    var on by remember { mutableStateOf(App.instance.settings.episodeNotifications) }
+    Section("New episodes") {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Notify me about new episodes", fontSize = 14.sp)
+                Text("For series in your library, checked twice a day.", color = Muted, fontSize = 12.sp)
+            }
+            androidx.compose.material3.Switch(
+                checked = on,
+                onCheckedChange = { on = it; App.instance.settings.episodeNotifications = it },
+                colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Accent),
+            )
         }
     }
 }

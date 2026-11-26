@@ -111,7 +111,7 @@ object AddonClient {
                     title = v.optStr("name") ?: v.optStr("title") ?: episode?.let { "Episode $it" } ?: "Video",
                     season = season,
                     episode = episode,
-                    released = v.optStr("released")?.take(10),
+                    released = v.optStr("released"),
                     thumbnail = v.optStr("thumbnail"),
                 )
             }
@@ -130,6 +130,7 @@ object AddonClient {
             genres = m.optJSONArray("genres").strings(),
             imdbRating = m.optStr("imdbRating"),
             videos = videos,
+            status = m.optStr("status"),
         )
     }
 

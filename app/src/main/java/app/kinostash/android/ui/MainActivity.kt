@@ -10,11 +10,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -40,6 +43,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val openDownloads = mutableIntStateOf(0)
+    private val openLibrary = mutableIntStateOf(0)
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,7 +53,33 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { App.instance.addons.ensureDefaults() }
         OfflineDownloads.kick(this) // continue unfinished downloads
         handle(intent)
-        setContent { KinostashTheme { Root(openDownloads.intValue) } }
+        val lastCrash = app.kinostash.android.CrashReporter.takeLastCrash()
+        setContent {
+            KinostashTheme {
+                Root(openDownloads.intValue, openLibrary.intValue)
+                var crash by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(lastCrash) }
+                crash?.let { text ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { crash = null },
+                        title = { Text("Kinostash crashed last time") },
+                        text = {
+                            androidx.compose.foundation.layout.Column(
+                                androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                            ) {
+                                Text("Please share this report so it can be fixed.")
+                                Text(text.take(3000), fontSize = androidx.compose.ui.unit.TextUnit(11f, androidx.compose.ui.unit.TextUnitType.Sp), color = Muted)
+                            }
+                        },
+                        confirmButton = {
+                            androidx.compose.material3.TextButton(onClick = {
+                                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share crash report"))
+                            }) { Text("Share") }
+                        },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { crash = null }) { Text("Close") } },
+                    )
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -59,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handle(intent: Intent?) {
         if (intent?.getBooleanExtra(DownloadService.EXTRA_OPEN_DOWNLOADS, false) == true) openDownloads.intValue++
+        if (intent?.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) == true) openLibrary.intValue++
         // stremio://…/manifest.json links install addons.
         val data = intent?.data
         if (data?.scheme == "stremio" && data.toString().endsWith("manifest.json")) {
@@ -68,12 +99,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        const val EXTRA_OPEN_LIBRARY = "app.kinostash.android.OPEN_LIBRARY"
+    }
 }
 
 object Routes {
     const val HOME = "home"
     const val SEARCH = "search"
     const val DOWNLOADS = "downloads"
+    const val LIBRARY = "library"
     const val SETTINGS = "settings"
     const val DETAIL = "detail/{type}/{id}"
     const val STREAMS = "streams/{type}/{id}/{videoId}"
@@ -82,14 +118,16 @@ object Routes {
 }
 
 @Composable
-private fun Root(openDownloadsSignal: Int) {
+private fun Root(openDownloadsSignal: Int, openLibrarySignal: Int) {
     val nav = rememberNavController()
     LaunchedEffect(openDownloadsSignal) { if (openDownloadsSignal > 0) nav.tab(Routes.DOWNLOADS) }
+    LaunchedEffect(openLibrarySignal) { if (openLibrarySignal > 0) nav.tab(Routes.LIBRARY) }
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
     val tabs = listOf(
         Triple(Routes.HOME, "Home", Icons.Outlined.Home),
         Triple(Routes.SEARCH, "Search", Icons.Outlined.Search),
+        Triple(Routes.LIBRARY, "Library", Icons.Outlined.VideoLibrary),
         Triple(Routes.DOWNLOADS, "Downloads", Icons.Outlined.Download),
         Triple(Routes.SETTINGS, "Settings", Icons.Outlined.Settings),
     )
@@ -115,6 +153,7 @@ private fun Root(openDownloadsSignal: Int) {
             composable(Routes.HOME) { HomeScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
             composable(Routes.SEARCH) { SearchScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
             composable(Routes.DOWNLOADS) { DownloadsScreen() }
+            composable(Routes.LIBRARY) { LibraryScreen(onOpen = { t, id -> nav.navigate(Routes.detail(t, id)) }) }
             composable(Routes.SETTINGS) { SettingsScreen() }
             composable(Routes.DETAIL) { e ->
                 val type = e.arguments?.getString("type")!!

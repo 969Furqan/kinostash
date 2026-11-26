@@ -45,9 +45,13 @@ data class Video(
     val title: String,
     val season: Int?,
     val episode: Int?,
+    /** Release time as ISO-8601 (e.g. 2026-11-30T04:00:00.000Z), if known. */
     val released: String?,
     val thumbnail: String?,
-)
+) {
+    val releasedAt: Long? get() = released?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }
+    val releasedDate: String? get() = released?.take(10)
+}
 
 data class MetaDetail(
     val id: String,
@@ -62,6 +66,8 @@ data class MetaDetail(
     val genres: List<String>,
     val imdbRating: String?,
     val videos: List<Video>,
+    /** e.g. "Continuing" or "Ended" for series. */
+    val status: String? = null,
 )
 
 /** A stream from a stream addon: a torrent ([infoHash]) or a direct link ([url]). */

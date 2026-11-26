@@ -41,7 +41,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            // R8 shrinking is off until the release build has been verified on devices (a minified
+            // 0.1.0 crashed on launch while the identical debug build runs).
+            isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
         }
@@ -64,6 +66,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    testOptions { unitTests.isIncludeAndroidResources = true }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -89,8 +92,15 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.jakewharton.timber:timber:5.0.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -133,3 +143,9 @@ val fetchNodejsMobile = tasks.register("fetchNodejsMobile") {
 }
 android.sourceSets.getByName("main").jniLibs.srcDir(nodejsMobileJniDir.get().asFile)
 tasks.named("preBuild") { dependsOn(fetchNodejsMobile) }
+
+tasks.withType<Test>().configureEach {
+    // Robolectric downloads Android system images itself; use Google's Maven Central mirror.
+    systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/")
+    testLogging { exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL; events("failed") }
+}

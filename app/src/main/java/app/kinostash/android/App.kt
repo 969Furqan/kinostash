@@ -17,16 +17,27 @@ class App : Application() {
         private set
     lateinit var server: StremioServer
         private set
+    lateinit var library: app.kinostash.android.data.Library
+        private set
+    lateinit var upcoming: app.kinostash.android.data.Upcoming
+        private set
+    lateinit var settings: app.kinostash.android.data.AppSettings
+        private set
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        CrashReporter.install(this)
         Timber.plant(Timber.DebugTree())
         addons = AddonRepository(this)
         account = StremioAccount(this)
         history = WatchHistory(this)
         server = StremioServer(this)
+        library = app.kinostash.android.data.Library(this)
+        upcoming = app.kinostash.android.data.Upcoming(this, addons, library)
+        settings = app.kinostash.android.data.AppSettings(this)
         OfflineDownloads.init(this)
+        runCatching { app.kinostash.android.data.EpisodeNotifier.schedule(this) }
     }
 
     companion object {

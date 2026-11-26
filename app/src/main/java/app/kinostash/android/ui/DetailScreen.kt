@@ -20,7 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.BookmarkAdd
+import androidx.compose.material.icons.outlined.BookmarkAdded
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -96,6 +99,25 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                         .joinToString("  ·  "),
                     color = Muted, fontSize = 13.sp,
                 )
+                val library by App.instance.library.items.collectAsState()
+                val inLibrary = library.any { it.id == m.id }
+                OutlinedButton(onClick = {
+                    if (inLibrary) App.instance.library.remove(m.id)
+                    else App.instance.library.add(app.kinostash.android.data.LibraryItem(m.id, type, m.name, m.poster, System.currentTimeMillis()))
+                }) {
+                    Icon(if (inLibrary) Icons.Outlined.BookmarkAdded else Icons.Outlined.BookmarkAdd, null)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (inLibrary) "In library" else "Add to library")
+                }
+                if (isSeries) {
+                    val now = System.currentTimeMillis()
+                    m.videos.firstOrNull { (it.releasedAt ?: 0) > now && (it.season ?: 1) > 0 }?.let { next ->
+                        Text(
+                            "Next episode: S${next.season}E${next.episode} · ${dayLabel(next.releasedAt!!)} · ${formatRelease(next.releasedAt!!)}",
+                            color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    } ?: m.status?.let { Text("Status: $it", color = Muted, fontSize = 13.sp) }
+                }
                 m.description?.let { Text(it, fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis) }
                 if (!isSeries) {
                     Button(
@@ -138,7 +160,7 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("${v.episode ?: ""}. ${v.title}", fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        v.released?.let { Text(it, fontSize = 12.sp, color = Muted) }
+                        v.releasedAt?.let { Text(formatRelease(it), fontSize = 12.sp, color = if (it > System.currentTimeMillis()) Accent else Muted) }
                     }
                 }
             }

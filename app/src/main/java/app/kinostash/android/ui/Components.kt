@@ -68,3 +68,7 @@ fun Loading(modifier: Modifier = Modifier) {
 fun Message(text: String, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text(text, color = Muted) }
 }
+
+/** "Mon 30 Nov, 09:00" in the phone's time zone and locale. */
+fun formatRelease(epochMs: Long): String =
+    java.text.SimpleDateFormat("EEE d MMM yyyy, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(epochMs))
