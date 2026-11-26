@@ -37,8 +37,9 @@ sealed interface UpdateState {
     data class Available(val release: AppRelease) : UpdateState
     data class Downloading(val release: AppRelease, val progress: Float) : UpdateState
     /** Downloaded and verified in the background; installing is one tap. */
-    data class ReadyToInstall(val release: AppRelease, val file: File) : UpdateState
-    data class Installing(val release: AppRelease) : UpdateState
+    data class ReadyToInstall(val release: AppRelease, val file: File, val note: String? = null) : UpdateState
+    /** Handed to the system installer; the downloaded file stays cached so it can be installed again. */
+    data class Installing(val release: AppRelease, val file: File) : UpdateState
     data class Failed(val message: String) : UpdateState
 }
 
@@ -62,6 +63,43 @@ object AppUpdater {
 
     fun init(ctx: Context) {
         _lastCheck.value = prefs(ctx).getLong("last_check", 0)
+        restoreCached(ctx)
+    }
+
+    // --- Cached download: survives a dismissed install dialog and app restarts ----------------
+
+    private fun saveCached(ctx: Context, rel: AppRelease) {
+        prefs(ctx).edit().putString("cached_release", JSONObject().apply {
+            put("version", rel.version); put("notes", rel.notes); put("apkUrl", rel.apkUrl); put("apkName", rel.apkName)
+            put("sha256", rel.sha256 ?: ""); put("size", rel.sizeBytes); put("pageUrl", rel.pageUrl)
+        }.toString()).apply()
+    }
+
+    private fun cachedRelease(ctx: Context): AppRelease? = runCatching {
+        val j = JSONObject(prefs(ctx).getString("cached_release", null) ?: return null)
+        AppRelease(j.getString("version"), j.optString("notes"), j.getString("apkUrl"), j.getString("apkName"),
+            j.optString("sha256").ifBlank { null }, j.optLong("size"), j.optString("pageUrl"))
+    }.getOrNull()
+
+    private fun cachedFile(ctx: Context, rel: AppRelease) = File(File(ctx.cacheDir, "updates"), rel.apkName)
+
+    /** A verified download of [version] that is still on disk, if any. */
+    private fun cachedReady(ctx: Context, version: String? = null): UpdateState.ReadyToInstall? {
+        val rel = cachedRelease(ctx) ?: return null
+        if (version != null && rel.version != version) return null
+        val f = cachedFile(ctx, rel)
+        return if (f.exists() && f.length() > 0) UpdateState.ReadyToInstall(rel, f) else null
+    }
+
+    private fun restoreCached(ctx: Context) {
+        val rel = cachedRelease(ctx) ?: return
+        if (!isNewer(rel.version, BuildConfig.VERSION_NAME)) {
+            // Already installed (or older): clean up.
+            File(ctx.cacheDir, "updates").deleteRecursively()
+            prefs(ctx).edit().remove("cached_release").apply()
+            return
+        }
+        cachedReady(ctx)?.let { _state.value = it }
     }
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("updater", Context.MODE_PRIVATE)
@@ -72,23 +110,24 @@ object AppUpdater {
         val now = System.currentTimeMillis()
         prefs(ctx).edit().putLong("last_check", now).apply()
         _lastCheck.value = now
-        // Keep an already-downloaded update instead of going back to "Available".
-        (_state.value as? UpdateState.ReadyToInstall)?.let { ready ->
-            val latest = runCatching { fetchLatest() }.getOrNull()
-            if (latest == null || latest.version == ready.release.version) return ready.release
-        }
+        val previous = _state.value
         return runCatching { fetchLatest() }.fold(
             onSuccess = { rel ->
                 if (rel != null && isNewer(rel.version, BuildConfig.VERSION_NAME)) {
-                    _state.value = UpdateState.Available(rel); rel
+                    // Reuse an already-downloaded copy instead of downloading again.
+                    _state.value = cachedReady(ctx, rel.version) ?: UpdateState.Available(rel); rel
                 } else {
                     if (!quiet) _state.value = UpdateState.UpToDate
                     null
                 }
             },
             onFailure = {
-                if (!quiet) _state.value = UpdateState.Failed("Couldn't check for updates: ${it.message}")
-                null
+                val ready = cachedReady(ctx)
+                when {
+                    ready != null -> { _state.value = ready.copy(note = "Couldn't reach GitHub, but the downloaded update can still be installed."); ready.release }
+                    quiet -> { _state.value = previous; null }
+                    else -> { _state.value = UpdateState.Failed("Couldn't check for updates: ${it.message}"); null }
+                }
             },
         )
     }
@@ -114,6 +153,7 @@ object AppUpdater {
         _state.value = UpdateState.Downloading(rel, 0f)
         val file = withContext(Dispatchers.IO) { download(ctx, rel) }
         withContext(Dispatchers.IO) { verify(ctx, file, rel) }
+        saveCached(ctx, rel)
         _state.value = UpdateState.ReadyToInstall(rel, file)
         true
     } catch (t: Throwable) {
@@ -125,11 +165,24 @@ object AppUpdater {
     suspend fun installPrepared(ctx: Context, ready: UpdateState.ReadyToInstall) {
         try {
             if (!ready.file.exists()) return downloadAndInstall(ctx, ready.release)
-            _state.value = UpdateState.Installing(ready.release)
+            withContext(Dispatchers.IO) { verify(ctx, ready.file, ready.release) }
+            _state.value = UpdateState.Installing(ready.release, ready.file)
             withContext(Dispatchers.IO) { install(ctx, ready.file) }
         } catch (t: Throwable) {
             _state.value = UpdateState.Failed(t.message ?: t.javaClass.simpleName)
         }
+    }
+
+    /** Hand the cached file to the installer again (e.g. the confirm dialog was dismissed or never showed). */
+    suspend fun reinstall(ctx: Context, installing: UpdateState.Installing) =
+        installPrepared(ctx, UpdateState.ReadyToInstall(installing.release, installing.file))
+
+    /** The installer was cancelled or failed: keep the downloaded file and offer to install again. */
+    private fun backToReady(ctx: Context, note: String?) {
+        val cur = _state.value
+        val ready = (cur as? UpdateState.Installing)?.let { UpdateState.ReadyToInstall(it.release, it.file) }?.takeIf { it.file.exists() }
+            ?: cachedReady(ctx)
+        _state.value = ready?.copy(note = note) ?: if (note != null) UpdateState.Failed(note) else UpdateState.Idle
     }
 
     private suspend fun fetchLatest(): AppRelease? = withContext(Dispatchers.IO) {
@@ -180,7 +233,8 @@ object AppUpdater {
             _state.value = UpdateState.Downloading(rel, 0f)
             val file = withContext(Dispatchers.IO) { download(ctx, rel) }
             withContext(Dispatchers.IO) { verify(ctx, file, rel) }
-            _state.value = UpdateState.Installing(rel)
+            saveCached(ctx, rel)
+            _state.value = UpdateState.Installing(rel, file)
             withContext(Dispatchers.IO) { install(ctx, file) }
         } catch (t: Throwable) {
             _state.value = UpdateState.Failed(t.message ?: t.javaClass.simpleName)
@@ -234,6 +288,8 @@ object AppUpdater {
 
     private fun install(ctx: Context, file: File) {
         val installer = ctx.packageManager.packageInstaller
+        // Drop sessions left over from an earlier attempt whose dialog was dismissed.
+        installer.mySessions.forEach { runCatching { installer.abandonSession(it.sessionId) } }
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(ctx.packageName)
             if (Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
@@ -260,8 +316,8 @@ object AppUpdater {
             PackageInstaller.STATUS_SUCCESS -> _state.value = UpdateState.Idle // the app is being replaced
             else -> {
                 val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "status $status"
-                _state.value = if (status == PackageInstaller.STATUS_FAILURE_ABORTED) UpdateState.Idle
-                else UpdateState.Failed("Install failed: $msg")
+                if (status == PackageInstaller.STATUS_FAILURE_ABORTED) backToReady(ctx, "Install was cancelled. Tap Install to try again.")
+                else backToReady(ctx, "Install failed: $msg")
             }
         }
     }

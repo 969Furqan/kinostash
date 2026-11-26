@@ -356,8 +356,7 @@ private fun UpdatesCard() {
                 )
             }
             val busy = state is app.kinostash.android.update.UpdateState.Checking ||
-                state is app.kinostash.android.update.UpdateState.Downloading ||
-                state is app.kinostash.android.update.UpdateState.Installing
+                state is app.kinostash.android.update.UpdateState.Downloading
             OutlinedButton(enabled = !busy, onClick = { scope.launch { app.kinostash.android.update.AppUpdater.check(ctx) } }) { Text("Check now") }
         }
         UpdateStatus(state)
@@ -370,6 +369,14 @@ private fun UpdatesCard() {
                 colors = ButtonDefaults.buttonColors(containerColor = Accent),
                 onClick = { scope.launch { app.kinostash.android.update.AppUpdater.installPrepared(ctx, s) } },
             ) { Text("Install ${s.release.version}") }
+            is app.kinostash.android.update.UpdateState.Installing -> Button(
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                onClick = { scope.launch { app.kinostash.android.update.AppUpdater.reinstall(ctx, s) } },
+            ) { Text("Install again") }
+            is app.kinostash.android.update.UpdateState.Failed -> Button(
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                onClick = { scope.launch { app.kinostash.android.update.AppUpdater.check(ctx) } },
+            ) { Text("Try again") }
             else -> Unit
         }
         val pageUrl = when (val s = state) {
@@ -437,9 +444,15 @@ fun UpdateStatus(state: app.kinostash.android.update.UpdateState) {
             Text("Downloading ${s.release.version}… ${(s.progress * 100).toInt()}%", fontSize = 13.sp)
             androidx.compose.material3.LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth(), color = Accent)
         }
-        is app.kinostash.android.update.UpdateState.ReadyToInstall ->
+        is app.kinostash.android.update.UpdateState.ReadyToInstall -> {
+            s.note?.let { Text(it, color = Muted, fontSize = 13.sp) }
             Text("Version ${s.release.version} is downloaded and verified. Tap Install.", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        is app.kinostash.android.update.UpdateState.Installing -> Text("Installing… confirm in the system dialog. (The first time, Android asks you to allow installs from Kinostash.)", fontSize = 13.sp)
+        }
+        is app.kinostash.android.update.UpdateState.Installing -> Text(
+            "Installing ${s.release.version}… confirm in the system dialog. (The first time, Android asks you to allow installs from Kinostash.) " +
+                "If no dialog appeared or you closed it, tap Install again. The download is kept, so nothing is downloaded twice.",
+            fontSize = 13.sp,
+        )
         is app.kinostash.android.update.UpdateState.Failed -> Text(s.message, color = androidx.compose.ui.graphics.Color(0xFFFF8A80), fontSize = 13.sp)
         app.kinostash.android.update.UpdateState.Idle -> Unit
     }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- Updates: if the install dialog didn't appear or you closed it, tap **Install again**. The downloaded update is kept (even after restarting the app), so it isn't downloaded twice. "Check now" also works while an install is pending.
+- A cancelled or failed install now goes back to "Install" instead of losing the download.
+
 ## 0.5.1
 
 - Fixed "Playback error: ERROR_CODE_FAILED_RUNTIME_CHECK" on some releases (MKV files with Blu-ray/DVD image subtitles). The player now decodes those subtitles, and if a file's subtitles still can't be handled it automatically continues without them instead of stopping.
