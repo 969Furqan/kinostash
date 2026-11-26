@@ -44,6 +44,15 @@ class LaunchTest {
         rule.runOnUiThread { rule.activity.onBackPressedDispatcher.onBackPressed() }; settle(1_000)
         rule.onAllNodesWithText("Library").onFirst().performClick(); settle(2_000)
         rule.onAllNodesWithText("El Camino", substring = true).onFirst().assertExists() // saved title shows in the library
+        // App updates section: options exist and a real check against GitHub Releases returns a result
+        rule.onAllNodesWithText("Settings").onFirst().performClick(); settle(1_000)
+        rule.onAllNodesWithText("App updates").onFirst().assertExists()
+        rule.onAllNodesWithText("Check for updates automatically").onFirst().assertExists()
+        rule.onAllNodesWithText("Download updates automatically on Wi-Fi").onFirst().assertExists()
+        rule.onAllNodesWithText("Check now").onFirst().performClick(); settle(8_000)
+        // This build is 0.3.1 and the latest published release is 0.3.0, so it must report up to date.
+        rule.onAllNodesWithText("You have the latest version.").onFirst().assertExists()
+        rule.onAllNodesWithText("Last checked", substring = true).onFirst().assertExists()
         // Library sub-tabs
         rule.onAllNodesWithText("Library").onFirst().performClick(); settle(1_000)
         rule.onAllNodesWithText("Upcoming").onFirst().performClick(); settle(2_000)

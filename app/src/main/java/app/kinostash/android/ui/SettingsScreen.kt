@@ -2,6 +2,7 @@ package app.kinostash.android.ui
 
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,11 +61,11 @@ fun SettingsScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+        UpdatesCard()
         AccountCard()
         AddonsCard()
         NotificationsCard()
         ServerCard()
-        UpdatesCard()
         AboutCard()
     }
 }
@@ -239,20 +240,91 @@ private fun ServerCard() {
 private fun UpdatesCard() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val settings = App.instance.settings
     val state by app.kinostash.android.update.AppUpdater.state.collectAsState()
+    val lastCheck by app.kinostash.android.update.AppUpdater.lastCheck.collectAsState()
+    var autoCheck by remember { mutableStateOf(settings.autoCheckUpdates) }
+    var frequency by remember { mutableStateOf(settings.updateFrequency) }
+    var notify by remember { mutableStateOf(settings.notifyUpdates) }
+    var autoDownload by remember { mutableStateOf(settings.autoDownloadUpdates) }
+    fun reschedule() = runCatching { app.kinostash.android.update.UpdateWorker.schedule(ctx) }
+
     Section("App updates") {
-        Text("Installed: Kinostash ${BuildConfig.VERSION_NAME}", fontSize = 14.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Kinostash ${BuildConfig.VERSION_NAME}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (lastCheck > 0) "Last checked: ${dayLabel(lastCheck)}, ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(lastCheck))}"
+                    else "Not checked yet",
+                    color = Muted, fontSize = 12.sp,
+                )
+            }
+            val busy = state is app.kinostash.android.update.UpdateState.Checking ||
+                state is app.kinostash.android.update.UpdateState.Downloading ||
+                state is app.kinostash.android.update.UpdateState.Installing
+            OutlinedButton(enabled = !busy, onClick = { scope.launch { app.kinostash.android.update.AppUpdater.check(ctx) } }) { Text("Check now") }
+        }
         UpdateStatus(state)
         when (val s = state) {
             is app.kinostash.android.update.UpdateState.Available -> Button(
                 colors = ButtonDefaults.buttonColors(containerColor = Accent),
                 onClick = { scope.launch { app.kinostash.android.update.AppUpdater.downloadAndInstall(ctx, s.release) } },
             ) { Text("Download & install ${s.release.version}") }
-            is app.kinostash.android.update.UpdateState.Downloading,
-            is app.kinostash.android.update.UpdateState.Installing,
-            app.kinostash.android.update.UpdateState.Checking -> Unit
-            else -> OutlinedButton(onClick = { scope.launch { app.kinostash.android.update.AppUpdater.check(ctx) } }) { Text("Check for updates") }
+            is app.kinostash.android.update.UpdateState.ReadyToInstall -> Button(
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                onClick = { scope.launch { app.kinostash.android.update.AppUpdater.installPrepared(ctx, s) } },
+            ) { Text("Install ${s.release.version}") }
+            else -> Unit
         }
+        val pageUrl = when (val s = state) {
+            is app.kinostash.android.update.UpdateState.Available -> s.release.pageUrl
+            is app.kinostash.android.update.UpdateState.ReadyToInstall -> s.release.pageUrl
+            else -> "https://github.com/${BuildConfig.UPDATE_REPO}/releases"
+        }
+        androidx.compose.material3.TextButton(onClick = {
+            runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(pageUrl))) }
+        }) { Text("Release notes & all versions") }
+
+        androidx.compose.material3.HorizontalDivider(color = Surface2)
+        ToggleRow("Check for updates automatically", "Looks for new versions on GitHub.", autoCheck) {
+            autoCheck = it; settings.autoCheckUpdates = it; reschedule()
+        }
+        if (autoCheck) {
+            Text("How often", fontSize = 13.sp, color = Muted)
+            app.kinostash.android.data.UpdateFrequency.entries.forEach { f ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable { frequency = f; settings.updateFrequency = f; reschedule() },
+                ) {
+                    androidx.compose.material3.RadioButton(
+                        selected = frequency == f, onClick = null,
+                        colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = Accent),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(f.label, fontSize = 14.sp)
+                }
+            }
+            ToggleRow("Notify me about updates", "A notification when a new version is found, even if the app is closed.", notify) {
+                notify = it; settings.notifyUpdates = it
+            }
+            ToggleRow("Download updates automatically on Wi-Fi", "Ready to install with one tap. Never uses mobile data.", autoDownload) {
+                autoDownload = it; settings.autoDownloadUpdates = it
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp)
+            Text(subtitle, color = Muted, fontSize = 12.sp)
+        }
+        androidx.compose.material3.Switch(
+            checked = checked, onCheckedChange = onChange,
+            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Accent),
+        )
     }
 }
 
@@ -269,6 +341,8 @@ fun UpdateStatus(state: app.kinostash.android.update.UpdateState) {
             Text("Downloading ${s.release.version}… ${(s.progress * 100).toInt()}%", fontSize = 13.sp)
             androidx.compose.material3.LinearProgressIndicator(progress = { s.progress }, modifier = Modifier.fillMaxWidth(), color = Accent)
         }
+        is app.kinostash.android.update.UpdateState.ReadyToInstall ->
+            Text("Version ${s.release.version} is downloaded and verified. Tap Install.", color = Accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         is app.kinostash.android.update.UpdateState.Installing -> Text("Installing… confirm in the system dialog. (The first time, Android asks you to allow installs from Kinostash.)", fontSize = 13.sp)
         is app.kinostash.android.update.UpdateState.Failed -> Text(s.message, color = androidx.compose.ui.graphics.Color(0xFFFF8A80), fontSize = 13.sp)
         app.kinostash.android.update.UpdateState.Idle -> Unit

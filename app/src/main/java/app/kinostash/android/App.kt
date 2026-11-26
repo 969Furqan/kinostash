@@ -38,6 +38,8 @@ class App : Application() {
         settings = app.kinostash.android.data.AppSettings(this)
         OfflineDownloads.init(this)
         runCatching { app.kinostash.android.data.EpisodeNotifier.schedule(this) }
+        app.kinostash.android.update.AppUpdater.init(this)
+        runCatching { app.kinostash.android.update.UpdateWorker.schedule(this) }
     }
 
     companion object {

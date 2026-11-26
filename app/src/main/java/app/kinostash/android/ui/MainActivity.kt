@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val openDownloads = mutableIntStateOf(0)
     private val openLibrary = mutableIntStateOf(0)
+    private val openSettings = mutableIntStateOf(0)
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,29 +53,37 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         lifecycleScope.launch { App.instance.addons.ensureDefaults() }
-        lifecycleScope.launch { app.kinostash.android.update.AppUpdater.checkIfDue(this@MainActivity) }
+        lifecycleScope.launch { app.kinostash.android.update.AppUpdater.checkIfDue(this@MainActivity, App.instance.settings) }
         OfflineDownloads.kick(this) // continue unfinished downloads
         handle(intent)
         val lastCrash = app.kinostash.android.CrashReporter.takeLastCrash()
         setContent {
             KinostashTheme {
-                Root(openDownloads.intValue, openLibrary.intValue)
+                Root(openDownloads.intValue, openLibrary.intValue, openSettings.intValue)
                 // "Update available" prompt (from the daily check).
                 val update by app.kinostash.android.update.AppUpdater.state.collectAsState()
                 var dismissedUpdate by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-                val avail = update as? app.kinostash.android.update.UpdateState.Available
-                if (avail != null && avail.release.version != dismissedUpdate) {
+                val availRelease = when (val u = update) {
+                    is app.kinostash.android.update.UpdateState.Available -> u.release
+                    is app.kinostash.android.update.UpdateState.ReadyToInstall -> u.release
+                    else -> null
+                }
+                if (availRelease != null && availRelease.version != dismissedUpdate) {
+                    val ready = update as? app.kinostash.android.update.UpdateState.ReadyToInstall
                     androidx.compose.material3.AlertDialog(
-                        onDismissRequest = { dismissedUpdate = avail.release.version },
-                        title = { Text("Update available: ${avail.release.version}") },
-                        text = { Text(avail.release.notes.ifBlank { "A new version of Kinostash is ready." }.take(1500)) },
+                        onDismissRequest = { dismissedUpdate = availRelease.version },
+                        title = { Text("Update available: ${availRelease.version}") },
+                        text = { Text(availRelease.notes.ifBlank { "A new version of Kinostash is ready." }.take(1500)) },
                         confirmButton = {
                             androidx.compose.material3.TextButton(onClick = {
-                                dismissedUpdate = avail.release.version
-                                lifecycleScope.launch { app.kinostash.android.update.AppUpdater.downloadAndInstall(this@MainActivity, avail.release) }
-                            }) { Text("Update") }
+                                dismissedUpdate = availRelease.version
+                                lifecycleScope.launch {
+                                    if (ready != null) app.kinostash.android.update.AppUpdater.installPrepared(this@MainActivity, ready)
+                                    else app.kinostash.android.update.AppUpdater.downloadAndInstall(this@MainActivity, availRelease)
+                                }
+                            }) { Text(if (ready != null) "Install" else "Update") }
                         },
-                        dismissButton = { androidx.compose.material3.TextButton(onClick = { dismissedUpdate = avail.release.version }) { Text("Later") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { dismissedUpdate = availRelease.version }) { Text("Later") } },
                     )
                 }
                 var crash by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(lastCrash) }
@@ -110,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private fun handle(intent: Intent?) {
         if (intent?.getBooleanExtra(DownloadService.EXTRA_OPEN_DOWNLOADS, false) == true) openDownloads.intValue++
         if (intent?.getBooleanExtra(EXTRA_OPEN_LIBRARY, false) == true) openLibrary.intValue++
+        if (intent?.getBooleanExtra(EXTRA_OPEN_SETTINGS, false) == true) openSettings.intValue++
         // stremio://…/manifest.json links install addons.
         val data = intent?.data
         if (data?.scheme == "stremio" && data.toString().endsWith("manifest.json")) {
@@ -122,6 +132,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_OPEN_LIBRARY = "app.kinostash.android.OPEN_LIBRARY"
+        const val EXTRA_OPEN_SETTINGS = "app.kinostash.android.OPEN_SETTINGS"
     }
 }
 
@@ -138,8 +149,9 @@ object Routes {
 }
 
 @Composable
-private fun Root(openDownloadsSignal: Int, openLibrarySignal: Int) {
+private fun Root(openDownloadsSignal: Int, openLibrarySignal: Int, openSettingsSignal: Int) {
     val nav = rememberNavController()
+    LaunchedEffect(openSettingsSignal) { if (openSettingsSignal > 0) nav.tab(Routes.SETTINGS) }
     LaunchedEffect(openDownloadsSignal) { if (openDownloadsSignal > 0) nav.tab(Routes.DOWNLOADS) }
     LaunchedEffect(openLibrarySignal) { if (openLibrarySignal > 0) nav.tab(Routes.LIBRARY) }
     val entry by nav.currentBackStackEntryAsState()

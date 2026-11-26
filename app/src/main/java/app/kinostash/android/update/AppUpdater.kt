@@ -36,6 +36,8 @@ sealed interface UpdateState {
     data object UpToDate : UpdateState
     data class Available(val release: AppRelease) : UpdateState
     data class Downloading(val release: AppRelease, val progress: Float) : UpdateState
+    /** Downloaded and verified in the background; installing is one tap. */
+    data class ReadyToInstall(val release: AppRelease, val file: File) : UpdateState
     data class Installing(val release: AppRelease) : UpdateState
     data class Failed(val message: String) : UpdateState
 }
@@ -54,10 +56,27 @@ object AppUpdater {
 
     private const val API = "https://api.github.com/repos/${BuildConfig.UPDATE_REPO}/releases/latest"
 
+    private val _lastCheck = MutableStateFlow(0L)
+    /** When the app last looked for an update (0 = never). */
+    val lastCheck: StateFlow<Long> = _lastCheck
+
+    fun init(ctx: Context) {
+        _lastCheck.value = prefs(ctx).getLong("last_check", 0)
+    }
+
+    private fun prefs(ctx: Context) = ctx.getSharedPreferences("updater", Context.MODE_PRIVATE)
+
     /** Check GitHub for a newer release. [quiet] keeps the state Idle when there is nothing new. */
     suspend fun check(ctx: Context, quiet: Boolean = false): AppRelease? {
         if (!quiet) _state.value = UpdateState.Checking
-        ctx.getSharedPreferences("updater", Context.MODE_PRIVATE).edit().putLong("last_check", System.currentTimeMillis()).apply()
+        val now = System.currentTimeMillis()
+        prefs(ctx).edit().putLong("last_check", now).apply()
+        _lastCheck.value = now
+        // Keep an already-downloaded update instead of going back to "Available".
+        (_state.value as? UpdateState.ReadyToInstall)?.let { ready ->
+            val latest = runCatching { fetchLatest() }.getOrNull()
+            if (latest == null || latest.version == ready.release.version) return ready.release
+        }
         return runCatching { fetchLatest() }.fold(
             onSuccess = { rel ->
                 if (rel != null && isNewer(rel.version, BuildConfig.VERSION_NAME)) {
@@ -74,11 +93,43 @@ object AppUpdater {
         )
     }
 
-    /** Daily background check on app start. */
-    suspend fun checkIfDue(ctx: Context): AppRelease? {
-        val last = ctx.getSharedPreferences("updater", Context.MODE_PRIVATE).getLong("last_check", 0)
-        if (System.currentTimeMillis() - last < 24 * 60 * 60 * 1000L) return null
-        return check(ctx, quiet = true)
+    /** Automatic check (app launch / background), following the user's update settings. */
+    suspend fun checkIfDue(ctx: Context, settings: app.kinostash.android.data.AppSettings): AppRelease? {
+        if (!settings.autoCheckUpdates) return null
+        val last = prefs(ctx).getLong("last_check", 0)
+        if (System.currentTimeMillis() - last < settings.updateFrequency.intervalMs) return null
+        val rel = check(ctx, quiet = true) ?: return null
+        if (settings.autoDownloadUpdates && onUnmeteredNetwork(ctx)) prepare(ctx, rel)
+        return rel
+    }
+
+    private fun onUnmeteredNetwork(ctx: Context): Boolean {
+        val cm = ctx.getSystemService(android.net.ConnectivityManager::class.java)
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+        return caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
+
+    /** Download and verify without installing (background auto-download). */
+    suspend fun prepare(ctx: Context, rel: AppRelease): Boolean = try {
+        _state.value = UpdateState.Downloading(rel, 0f)
+        val file = withContext(Dispatchers.IO) { download(ctx, rel) }
+        withContext(Dispatchers.IO) { verify(ctx, file, rel) }
+        _state.value = UpdateState.ReadyToInstall(rel, file)
+        true
+    } catch (t: Throwable) {
+        _state.value = UpdateState.Available(rel) // fall back to a manual download
+        false
+    }
+
+    /** Install an update that [prepare] already downloaded and verified. */
+    suspend fun installPrepared(ctx: Context, ready: UpdateState.ReadyToInstall) {
+        try {
+            if (!ready.file.exists()) return downloadAndInstall(ctx, ready.release)
+            _state.value = UpdateState.Installing(ready.release)
+            withContext(Dispatchers.IO) { install(ctx, ready.file) }
+        } catch (t: Throwable) {
+            _state.value = UpdateState.Failed(t.message ?: t.javaClass.simpleName)
+        }
     }
 
     private suspend fun fetchLatest(): AppRelease? = withContext(Dispatchers.IO) {
