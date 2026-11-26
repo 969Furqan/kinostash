@@ -58,6 +58,13 @@ class PlayerUiTest {
                 rule.onAllNodesWithText("Close").onFirst().performClick(); settle(300)
                 rule.onRoot().performTouchInput { click(center) }; settle(300)
             }
+            // Subtitle style panel: opens over the video, sliders/swatches render, Reset and Done work.
+            rule.onAllNodesWithContentDescription("Subtitles").onFirst().performClick(); settle(800)
+            rule.onAllNodesWithText("Style: size, colour, position, width…").onFirst().performClick(); settle(800)
+            rule.onAllNodesWithText("Subtitle style").onFirst().assertExists()
+            rule.onAllNodesWithText("Width: 100% (− squeeze, + stretch)").onFirst().assertExists()
+            rule.onAllNodesWithText("Reset").onFirst().performClick(); settle(300)
+            rule.onAllNodesWithText("Done").onFirst().performClick(); settle(300)
         }
     }
 }

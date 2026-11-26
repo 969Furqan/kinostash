@@ -1,5 +1,7 @@
 package app.kinostash.android.ui
 
+import androidx.compose.ui.graphics.graphicsLayer
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,7 +49,7 @@ import app.kinostash.android.data.PlayerChoice
 import app.kinostash.android.downloads.OfflineDownloads
 
 @Composable
-private fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int = 0, onChange: (Float) -> Unit, onDone: () -> Unit = {}) {
+internal fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int = 0, onChange: (Float) -> Unit, onDone: () -> Unit = {}) {
     Text(label, fontSize = 14.sp)
     Slider(
         value = value, onValueChange = onChange, onValueChangeFinished = onDone, valueRange = range, steps = steps,
@@ -122,11 +124,11 @@ private val LANGUAGES = listOf(
     "nl" to "Dutch", "pl" to "Polish", "sv" to "Swedish", "ja" to "Japanese", "ko" to "Korean", "zh" to "Chinese",
     "id" to "Indonesian", "fa" to "Persian", "bn" to "Bengali",
 )
-private val TEXT_COLORS = listOf(0xFFFFFFFF, 0xFFFFEB3B, 0xFFFFB547, 0xFF8FC7FF, 0xFF7CFC9A, 0xFFFF8A80, 0xFF000000).map { it.toInt() }
-private val BG_COLORS: List<Int> = listOf(0x00000000L, 0x66000000L, 0xAA000000L, 0xFF000000L, 0x99FFFFFFL).map { it.toInt() }
+internal val TEXT_COLORS = listOf(0xFFFFFFFF, 0xFFFFEB3B, 0xFFFFB547, 0xFF8FC7FF, 0xFF7CFC9A, 0xFFFF8A80, 0xFF000000).map { it.toInt() }
+internal val BG_COLORS: List<Int> = listOf(0x00000000L, 0x66000000L, 0xAA000000L, 0xFF000000L, 0x99FFFFFFL).map { it.toInt() }
 
 @Composable
-private fun Swatches(colors: List<Int>, selected: Int, onPick: (Int) -> Unit) {
+internal fun Swatches(colors: List<Int>, selected: Int, onPick: (Int) -> Unit) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         items(colors) { c ->
             Box(
@@ -149,6 +151,8 @@ fun SubtitleSettings() {
     var bg by remember { mutableIntStateOf(s.subtitleBackgroundColor) }
     var outline by remember { mutableStateOf(s.subtitleOutline) }
     var pos by remember { mutableFloatStateOf(s.subtitlePositionPercent.toFloat()) }
+    var offX by remember { mutableFloatStateOf(s.subtitleOffsetXPercent.toFloat()) }
+    var width by remember { mutableFloatStateOf(s.subtitleWidthPercent.toFloat()) }
     var delay by remember { mutableFloatStateOf(s.subtitleDelayMs.toFloat()) }
 
     // Live preview
@@ -157,7 +161,8 @@ fun SubtitleSettings() {
             "This is how subtitles will look",
             color = Color(color), fontSize = (16 * size / 100).sp, fontWeight = FontWeight.Medium,
             style = if (outline) TextStyle(shadow = Shadow(Color.Black, blurRadius = 4f)) else TextStyle.Default,
-            modifier = Modifier.padding(bottom = (pos * 1.2f).dp).background(Color(bg)).padding(horizontal = 6.dp, vertical = 2.dp),
+            modifier = Modifier.padding(bottom = (pos * 1.2f).dp)
+                .graphicsLayer { scaleX = width / 100f; translationX = offX / 100f * 300f }.background(Color(bg)).padding(horizontal = 6.dp, vertical = 2.dp),
         )
     }
     Section("Default language") {
@@ -177,6 +182,9 @@ fun SubtitleSettings() {
         Swatches(BG_COLORS, bg) { bg = it; s.subtitleBackgroundColor = it }
         ToggleRow("Outline", "A dark edge around the letters for readability.", outline) { outline = it; s.subtitleOutline = it }
         LabeledSlider("Position: ${pos.toInt()}% from the bottom", pos, 0f..40f, onChange = { pos = it; s.subtitlePositionPercent = it.toInt() })
+        LabeledSlider("Horizontal position: ${"%+d".format(offX.toInt())}%", offX, -40f..40f, onChange = { offX = it; s.subtitleOffsetXPercent = it.toInt() })
+        LabeledSlider("Text width: ${width.toInt()}% (− squeeze, + stretch)", width, 50f..150f, onChange = { width = it; s.subtitleWidthPercent = it.toInt() })
+        Text("You can also change all of this while watching (CC button → Style).", color = Muted, fontSize = 12.sp)
     }
     Section("Timing") {
         LabeledSlider(

@@ -3,6 +3,10 @@ package app.kinostash.android.player
 import android.graphics.Color as AColor
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
@@ -86,7 +90,7 @@ import app.kinostash.android.ui.Muted
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class Sheet { NONE, SUBTITLES, AUDIO, SOURCES, SPEED }
+private enum class Sheet { NONE, SUBTITLES, STYLE, AUDIO, SOURCES, SPEED }
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -136,19 +140,37 @@ fun PlayerUi(a: PlayerActivity) {
             },
             update = { v ->
                 v.resizeMode = resize
-                v.subtitleView?.apply {
-                    setApplyEmbeddedStyles(false)
-                    setApplyEmbeddedFontSizes(false)
-                    setStyle(
-                        CaptionStyleCompat(
-                            settings.subtitleTextColor, settings.subtitleBackgroundColor, AColor.TRANSPARENT,
-                            if (settings.subtitleOutline) CaptionStyleCompat.EDGE_TYPE_OUTLINE else CaptionStyleCompat.EDGE_TYPE_NONE,
-                            AColor.BLACK, null,
-                        ),
-                    )
-                    setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * settings.subtitleSizePercent / 100f)
-                    setBottomPaddingFraction(settings.subtitlePositionPercent / 100f)
-                }
+                // The built-in subtitle view sits inside the video frame and is resized with it; we draw our own.
+                v.subtitleView?.visibility = android.view.View.GONE
+            },
+        )
+
+        // Subtitles, full-screen and independent of the video's resize mode.
+        val styleVersion = a.subStyleVersion.intValue
+        val cues = a.cues.value
+        val showSample = sheet == Sheet.STYLE && cues.isEmpty()
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx -> SubtitleView(ctx) },
+            update = { v ->
+                @Suppress("UNUSED_EXPRESSION") styleVersion
+                v.setApplyEmbeddedStyles(false)
+                v.setApplyEmbeddedFontSizes(false)
+                v.setStyle(
+                    CaptionStyleCompat(
+                        settings.subtitleTextColor, settings.subtitleBackgroundColor, AColor.TRANSPARENT,
+                        if (settings.subtitleOutline) CaptionStyleCompat.EDGE_TYPE_OUTLINE else CaptionStyleCompat.EDGE_TYPE_NONE,
+                        AColor.BLACK, null,
+                    ),
+                )
+                v.setFractionalTextSize(SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * settings.subtitleSizePercent / 100f)
+                v.setBottomPaddingFraction(settings.subtitlePositionPercent / 100f)
+                v.scaleX = settings.subtitleWidthPercent / 100f
+                v.post { v.pivotX = v.width / 2f; v.translationX = v.width * settings.subtitleOffsetXPercent / 100f }
+                v.setCues(
+                    if (showSample) listOf(androidx.media3.common.text.Cue.Builder().setText("Subtitle preview\nThis is how subtitles look").build())
+                    else cues,
+                )
             },
         )
 
@@ -279,7 +301,8 @@ fun PlayerUi(a: PlayerActivity) {
         }
 
         when (sheet) {
-            Sheet.SUBTITLES -> SubtitleDialog(a) { sheet = Sheet.NONE }
+            Sheet.SUBTITLES -> SubtitleDialog(a, onStyle = { sheet = Sheet.STYLE }) { sheet = Sheet.NONE }
+            Sheet.STYLE -> SubtitleStylePanel(a) { sheet = Sheet.NONE }
             Sheet.AUDIO -> TrackDialog(a, C.TRACK_TYPE_AUDIO, "Audio") { sheet = Sheet.NONE }
             Sheet.SOURCES -> SourcesDialog(a) { sheet = Sheet.NONE }
             Sheet.SPEED -> SpeedDialog(a) { sheet = Sheet.NONE }
@@ -327,7 +350,7 @@ private fun SeekBar(a: PlayerActivity, onTouch: () -> Unit) {
 }
 
 @Composable
-private fun SubtitleDialog(a: PlayerActivity, onClose: () -> Unit) {
+private fun SubtitleDialog(a: PlayerActivity, onStyle: () -> Unit, onClose: () -> Unit) {
     @Suppress("UNUSED_VARIABLE") val v = a.tracksVersion.intValue
     val tracks = a.tracks(C.TRACK_TYPE_TEXT)
     AlertDialog(
@@ -342,6 +365,7 @@ private fun SubtitleDialog(a: PlayerActivity, onClose: () -> Unit) {
                     }
                 }
                 Text("Delay applies to addon subtitles.", color = Muted, fontSize = 12.sp)
+                TextButton(onClick = onStyle) { Text("Style: size, colour, position, width…", color = Accent) }
                 Spacer(Modifier.height(8.dp))
                 LazyColumn(Modifier.heightIn(max = 260.dp)) {
                     item { TrackRow("Off", tracks.none { it.selected }) { a.selectTrack(C.TRACK_TYPE_TEXT, null); onClose() } }
@@ -429,4 +453,43 @@ private fun SpeedDialog(a: PlayerActivity, onClose: () -> Unit) {
 private fun fmt(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, (s / 60) % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
+}
+
+/** Live subtitle styling over the video: changes show immediately and are saved as your defaults. */
+@Composable
+private fun BoxScope.SubtitleStylePanel(a: PlayerActivity, onClose: () -> Unit) {
+    val s = App.instance.settings
+    var size by remember { mutableFloatStateOf(s.subtitleSizePercent.toFloat()) }
+    var color by remember { mutableIntStateOf(s.subtitleTextColor) }
+    var bg by remember { mutableIntStateOf(s.subtitleBackgroundColor) }
+    var outline by remember { mutableStateOf(s.subtitleOutline) }
+    var posY by remember { mutableFloatStateOf(s.subtitlePositionPercent.toFloat()) }
+    var posX by remember { mutableFloatStateOf(s.subtitleOffsetXPercent.toFloat()) }
+    var width by remember { mutableFloatStateOf(s.subtitleWidthPercent.toFloat()) }
+    fun changed() { a.subStyleVersion.intValue++ }
+
+    Column(
+        Modifier.align(Alignment.TopEnd).fillMaxHeight().widthIn(max = 380.dp).fillMaxWidth(0.5f)
+            .background(Color(0xE6101218)).pointerInput(Unit) { detectTapGestures { } }
+            .verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Subtitle style", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                s.resetSubtitleStyle()
+                size = 100f; color = s.subtitleTextColor; bg = 0; outline = true; posY = 8f; posX = 0f; width = 100f; changed()
+            }) { Text("Reset", color = Muted) }
+            TextButton(onClick = onClose) { Text("Done", color = Accent) }
+        }
+        app.kinostash.android.ui.LabeledSlider("Size: ${size.toInt()}%", size, 50f..250f, onChange = { size = it; s.subtitleSizePercent = it.toInt(); changed() })
+        Text("Text colour", color = Color.White, fontSize = 14.sp)
+        app.kinostash.android.ui.Swatches(app.kinostash.android.ui.TEXT_COLORS, color) { color = it; s.subtitleTextColor = it; changed() }
+        Text("Background", color = Color.White, fontSize = 14.sp)
+        app.kinostash.android.ui.Swatches(app.kinostash.android.ui.BG_COLORS, bg) { bg = it; s.subtitleBackgroundColor = it; changed() }
+        app.kinostash.android.ui.ToggleRow("Outline", "Dark edge around letters", outline) { outline = it; s.subtitleOutline = it; changed() }
+        app.kinostash.android.ui.LabeledSlider("Vertical: ${posY.toInt()}% from bottom", posY, 0f..60f, onChange = { posY = it; s.subtitlePositionPercent = it.toInt(); changed() })
+        app.kinostash.android.ui.LabeledSlider("Horizontal: ${"%+d".format(posX.toInt())}%", posX, -40f..40f, onChange = { posX = it; s.subtitleOffsetXPercent = it.toInt(); changed() })
+        app.kinostash.android.ui.LabeledSlider("Width: ${width.toInt()}% (− squeeze, + stretch)", width, 50f..150f, onChange = { width = it; s.subtitleWidthPercent = it.toInt(); changed() })
+    }
 }

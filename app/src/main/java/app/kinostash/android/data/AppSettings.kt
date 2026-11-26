@@ -65,6 +65,15 @@ class AppSettings(context: Context) {
     var subtitleOutline: Boolean get() = bool("sub_outline", true); set(v) = setBool("sub_outline", v)
     /** Distance from the bottom of the screen, in percent of its height. */
     var subtitlePositionPercent: Int get() = int("sub_pos", 8); set(v) = setInt("sub_pos", v)
+    /** Horizontal offset, % of the screen width (− left, + right). */
+    var subtitleOffsetXPercent: Int get() = int("sub_x", 0); set(v) = setInt("sub_x", v)
+    /** Horizontal text scale: below 100 squeezes, above 100 stretches. */
+    var subtitleWidthPercent: Int get() = int("sub_w", 100); set(v) = setInt("sub_w", v)
+
+    fun resetSubtitleStyle() {
+        subtitleSizePercent = 100; subtitleTextColor = 0xFFFFFFFF.toInt(); subtitleBackgroundColor = 0
+        subtitleOutline = true; subtitlePositionPercent = 8; subtitleOffsetXPercent = 0; subtitleWidthPercent = 100
+    }
     /** Default subtitle delay in milliseconds (positive = later, negative = earlier). */
     var subtitleDelayMs: Int get() = int("sub_delay", 0); set(v) = setInt("sub_delay", v)
 

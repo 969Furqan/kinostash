@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.3
+
+- Subtitles keep their size when you switch the video between Fit, Zoom (crop) and Stretch.
+- New subtitle style panel in the player (CC → Style): size, text colour, background, outline, vertical and horizontal position, and text width (squeeze or stretch). Changes show live over the video and are saved as your defaults.
+- Settings → Subtitles also has the new horizontal position and text width options.
+
 ## 0.5.2
 
 - Updates: if the install dialog didn't appear or you closed it, tap **Install again**. The downloaded update is kept (even after restarting the app), so it isn't downloaded twice. "Check now" also works while an install is pending.

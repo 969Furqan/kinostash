@@ -93,6 +93,10 @@ class PlayerActivity : ComponentActivity() {
     val speed = mutableFloatStateOf(1f)
     val title = mutableStateOf("")
     val tracksVersion = mutableIntStateOf(0)
+    /** Current subtitle cues, drawn by our own overlay so the video's zoom/stretch doesn't resize them. */
+    val cues = mutableStateOf<List<androidx.media3.common.text.Cue>>(emptyList())
+    /** Bumped whenever subtitle style settings change, so the overlay restyles live. */
+    val subStyleVersion = mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,6 +140,7 @@ class PlayerActivity : ComponentActivity() {
                     }
                     override fun onIsPlayingChanged(playing: Boolean) { isPlaying.value = playing }
                     override fun onTracksChanged(tracks: Tracks) { tracksVersion.intValue++ }
+                    override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) { cues.value = cueGroup.cues }
                 })
             }
         setContent { KinostashTheme { PlayerUi(this) } }
