@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+- The download button next to the seasons now opens a menu: **Next unwatched episodes…** (pick how many: 1, 3, 5, 10, any number with −/+, or All; continues after your last watched episode, across seasons), **Unwatched in season**, **Whole season**, and **Select episodes…**. The same options are in the season menu (⋮).
+- Episodes that are already downloaded or queued are skipped automatically.
+
 ## 0.6.1
 
 - Fixed "Couldn't check for updates: HTTP 403". GitHub's API allows only 60 checks per hour per network (often shared on mobile data); when it refuses, Kinostash now checks the GitHub releases page directly instead, still verifying the download's checksum and signature.

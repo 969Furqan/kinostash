@@ -46,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -91,6 +92,8 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     var seasonMenu by remember { mutableStateOf(false) }
     var categories by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var downloadMenu by remember { mutableStateOf(false) }
+    var nextCountDialog by remember { mutableStateOf(false) }
     val preparing by TitleActions.preparing.collectAsState()
 
     LaunchedEffect(type, id) {
@@ -117,6 +120,17 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     androidx.activity.compose.BackHandler(enabled = selecting) { selected = emptySet() }
     val seasonEpisodes = m.videos.filter { it.season == season || seasons.isEmpty() }
     fun airedOf(list: List<Video>) = list.filter { (it.releasedAt ?: 0) <= System.currentTimeMillis() }
+    fun watched(v: Video) = history.find { it.videoId == v.id }?.finished == true
+    /** Aired, unwatched episodes not downloaded or queued yet, in viewing order (specials last). */
+    fun unwatchedOf(list: List<Video>) = airedOf(list)
+        .filter { !watched(it) && TitleActions.downloaded(it.id, downloads) == null && TitleActions.downloading(it.id, downloads) == null }
+        .sortedWith(compareBy({ if ((it.season ?: 1) == 0) Int.MAX_VALUE else it.season ?: 1 }, { it.episode ?: 0 }))
+    /** Unwatched episodes from where you are in the series onwards (after your last watched episode). */
+    fun nextUnwatched(): List<Video> {
+        val ordered = m.videos.filter { (it.season ?: 1) > 0 }.sortedWith(compareBy({ it.season ?: 1 }, { it.episode ?: 0 }))
+        val lastWatchedIdx = ordered.indexOfLast { watched(it) }
+        return unwatchedOf(ordered.drop(lastWatchedIdx + 1))
+    }
 
     Box(Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = if (selecting) 96.dp else 24.dp)) {
@@ -222,8 +236,31 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                             )
                         }
                     }
-                    IconButton(onClick = { TitleActions.queueDownloads(ctx, m, airedOf(seasonEpisodes)) }) {
-                        Icon(Icons.Outlined.Download, "Download season", tint = Accent)
+                    Box {
+                        IconButton(onClick = { downloadMenu = true }) { Icon(Icons.Outlined.Download, "Download episodes", tint = Accent) }
+                        androidx.compose.material3.DropdownMenu(downloadMenu, { downloadMenu = false }) {
+                            val label = if (season == 0) "specials" else "season $season"
+                            val unwatchedHere = unwatchedOf(seasonEpisodes)
+                            val next = nextUnwatched()
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Next unwatched episodes…" + if (next.isEmpty()) " (none left)" else "") },
+                                enabled = next.isNotEmpty(),
+                                onClick = { downloadMenu = false; nextCountDialog = true },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Unwatched in $label (${unwatchedHere.size})") },
+                                enabled = unwatchedHere.isNotEmpty(),
+                                onClick = { downloadMenu = false; TitleActions.queueDownloads(ctx, m, unwatchedHere) },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Whole $label (${airedOf(seasonEpisodes).size})") },
+                                onClick = { downloadMenu = false; TitleActions.queueDownloads(ctx, m, airedOf(seasonEpisodes)) },
+                            )
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("Select episodes…") },
+                                onClick = { downloadMenu = false; selected = airedOf(seasonEpisodes).take(1).map { it.id }.toSet() },
+                            )
+                        }
                     }
                     IconButton(onClick = { seasonMenu = true }) { Icon(Icons.Outlined.MoreVert, "Season options") }
                 }
@@ -289,6 +326,42 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     }
 
     if (categories) CategoryDialog(libItem) { categories = false }
+    if (nextCountDialog) {
+        val next = nextUnwatched()
+        var count by remember { mutableIntStateOf(minOf(3, next.size).coerceAtLeast(1)) }
+        AlertDialog(
+            onDismissRequest = { nextCountDialog = false },
+            title = { Text("Download next unwatched") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Continues after your last watched episode, across seasons. ${next.size} available.", color = Muted, fontSize = 13.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(enabled = count > 1, onClick = { count-- }) { Text("−", fontSize = 24.sp) }
+                        Text("$count", fontSize = 28.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+                        TextButton(enabled = count < next.size, onClick = { count++ }) { Text("+", fontSize = 24.sp) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(1, 3, 5, 10).filter { it <= next.size }.forEach { n ->
+                            FilterChip(count == n, { count = n }, { Text("$n") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+                        }
+                        FilterChip(count == next.size, { count = next.size }, { Text("All") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+                    }
+                    next.take(count).let { picked ->
+                        Text(
+                            "${TitleActions.label(picked.first()).substringBefore(" · ")} → ${TitleActions.label(picked.last()).substringBefore(" · ")}",
+                            fontSize = 13.sp, color = Accent,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { nextCountDialog = false; TitleActions.queueDownloads(ctx, m, next.take(count)) }) {
+                    Text("Download $count", fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { nextCountDialog = false }) { Text("Cancel") } },
+        )
+    }
     if (titleMenu) TitleMenu(type, m.id, m.name, m.poster) { titleMenu = false }
     if (seasonMenu) {
         val eps = m.videos.filter { it.season == season }
@@ -303,6 +376,10 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                     MenuItem("Download season (${aired.size} episodes)") {
                         seasonMenu = false; TitleActions.queueDownloads(ctx, m, aired)
                     }
+                    MenuItem("Download unwatched in this season") {
+                        seasonMenu = false; TitleActions.queueDownloads(ctx, m, unwatchedOf(eps))
+                    }
+                    MenuItem("Download next unwatched…") { seasonMenu = false; nextCountDialog = true }
                     MenuItem("Download all seasons") {
                         seasonMenu = false; TitleActions.queueDownloads(ctx, m, TitleActions.aired(m))
                     }

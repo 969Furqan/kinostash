@@ -110,6 +110,7 @@ fun PlayerSettings() {
         LabeledSlider("Maximum per gesture: ${max.toInt()} s", max, step..300f, onChange = { max = it; s.seekMaxSec = it.toInt() })
     }
     Section("Gestures") {
+        Text("Turn these off if you swipe by accident. Brightness and volume can still be changed with your phone's buttons and quick settings.", color = Muted, fontSize = 12.sp)
         ToggleRow("Swipe on the left for brightness", "Slide up or down on the left half of the screen.", bright) { bright = it; s.swipeBrightness = it }
         ToggleRow("Swipe on the right for volume", "Slide up or down on the right half of the screen.", vol) { vol = it; s.swipeVolume = it }
     }
