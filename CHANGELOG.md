@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Fixed watched marks disappearing after playing an episode. History was capped at 300 entries, so long series (One Piece has 1100+ episodes) lost the oldest marks. Watched marks are now never dropped. Marks already lost need to be set again once (long-press → Mark all before this as watched).
+- Episode list: **filter** (All, Not watched, Watched, Downloaded, Not downloaded) and **sort** (episode number either way, newest/oldest, unwatched first, title). Your choice is remembered.
+- Player: **swipe sideways to seek** — slide left/right anywhere, see the target time, release to jump. Toggle in Settings → Player → Gestures.
+- Player: the subtitle style panel is wider and readable, hides the player controls while open, and tapping the video closes it.
+
 ## 0.6.2
 
 - The download button next to the seasons now opens a menu: **Next unwatched episodes…** (pick how many: 1, 3, 5, 10, any number with −/+, or All; continues after your last watched episode, across seasons), **Unwatched in season**, **Whole season**, and **Select episodes…**. The same options are in the season menu (⋮).

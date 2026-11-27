@@ -3,6 +3,7 @@ package app.kinostash.android.player
 import android.graphics.Color as AColor
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.widthIn
@@ -107,6 +108,8 @@ fun PlayerUi(a: PlayerActivity) {
     var lastSeekAt by remember { mutableLongStateOf(0L) }
     // Brightness / volume HUD
     var hud by remember { mutableStateOf<Pair<ImageVector, Float>?>(null) }
+    // Horizontal swipe-to-seek: (start position, target position) while dragging
+    var scrub by remember { mutableStateOf<Pair<Long, Long>?>(null) }
 
     fun touch() { lastInteraction = System.currentTimeMillis() }
 
@@ -180,6 +183,7 @@ fun PlayerUi(a: PlayerActivity) {
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onTap = { o ->
+                            if (sheet == Sheet.STYLE) { sheet = Sheet.NONE; return@detectTapGestures }
                             val side = if (o.x < size.width / 2) -1 else 1
                             if (seekSide == side && System.currentTimeMillis() - lastSeekAt < 900) doubleTapSeek(side)
                             else { controls = !controls; touch() }
@@ -205,8 +209,39 @@ fun PlayerUi(a: PlayerActivity) {
                             }
                         },
                     )
+                }
+                .pointerInput(Unit) {
+                    var startMs = 0L
+                    var dxTotal = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { startMs = a.player?.currentPosition ?: 0L; dxTotal = 0f },
+                        onDragEnd = { scrub?.let { (_, target) -> a.seekTo(target) }; scrub = null },
+                        onDragCancel = { scrub = null },
+                        onHorizontalDrag = { change, dx ->
+                            if (!settings.swipeSeek || sheet == Sheet.STYLE) return@detectHorizontalDragGestures
+                            change.consume()
+                            dxTotal += dx
+                            val duration = a.player?.duration?.takeIf { it > 0 } ?: Long.MAX_VALUE
+                            // A full screen-width swipe = 2 minutes; long swipes speed up slightly.
+                            val frac = dxTotal / size.width
+                            val deltaMs = (frac * 120_000 * (1 + kotlin.math.abs(frac))).toLong()
+                            scrub = startMs to (startMs + deltaMs).coerceIn(0L, duration)
+                        },
+                    )
                 },
         )
+
+        // Swipe-to-seek indicator
+        scrub?.let { (start, target) ->
+            val d = target - start
+            Column(
+                Modifier.align(Alignment.Center).clip(RoundedCornerShape(12.dp)).background(Color(0x99000000)).padding(horizontal = 22.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text((if (d >= 0) "+" else "−") + fmt(kotlin.math.abs(d)), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text("${fmt(target)} / ${fmt(a.player?.duration?.coerceAtLeast(0) ?: 0)}", color = Color.White, fontSize = 13.sp)
+            }
+        }
 
         // Double-tap seek bubbles
         if (seekSide != 0) {
@@ -256,7 +291,7 @@ fun PlayerUi(a: PlayerActivity) {
                         .background(Color(0x88000000)).padding(horizontal = 12.dp, vertical = 6.dp),
                 )
             }
-        } else if (controls && hud == null && seekSide == 0) {
+        } else if (controls && sheet != Sheet.STYLE && hud == null && seekSide == 0 && scrub == null) {
             Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(36.dp), verticalAlignment = Alignment.CenterVertically) {
                 RoundButton(Icons.Outlined.Replay10, "Back") { a.seekBy(-settings.seekStepSec * 1000L); touch() }
                 RoundButton(if (a.isPlaying.value) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, "Play/pause", big = true) { a.togglePlay(); touch() }
@@ -265,7 +300,7 @@ fun PlayerUi(a: PlayerActivity) {
         }
 
         // Top and bottom bars
-        AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
+        AnimatedVisibility(controls && sheet != Sheet.STYLE, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Row(
                 Modifier.fillMaxWidth().background(Color(0x88000000)).padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -288,7 +323,7 @@ fun PlayerUi(a: PlayerActivity) {
                 IconButton(onClick = { a.openExternally() }) { Icon(Icons.Outlined.OpenInNew, "Open in another player", tint = Color.White) }
             }
         }
-        AnimatedVisibility(controls, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
+        AnimatedVisibility(controls && sheet != Sheet.STYLE, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
             Column(Modifier.fillMaxWidth().background(Color(0x88000000)).padding(horizontal = 16.dp, vertical = 8.dp)) {
                 if (a.resumedFrom.longValue > 0) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -301,7 +336,7 @@ fun PlayerUi(a: PlayerActivity) {
         }
 
         when (sheet) {
-            Sheet.SUBTITLES -> SubtitleDialog(a, onStyle = { sheet = Sheet.STYLE }) { sheet = Sheet.NONE }
+            Sheet.SUBTITLES -> SubtitleDialog(a, onStyle = { sheet = Sheet.STYLE; controls = false }) { sheet = Sheet.NONE }
             Sheet.STYLE -> SubtitleStylePanel(a) { sheet = Sheet.NONE }
             Sheet.AUDIO -> TrackDialog(a, C.TRACK_TYPE_AUDIO, "Audio") { sheet = Sheet.NONE }
             Sheet.SOURCES -> SourcesDialog(a) { sheet = Sheet.NONE }
@@ -468,28 +503,53 @@ private fun BoxScope.SubtitleStylePanel(a: PlayerActivity, onClose: () -> Unit) 
     var width by remember { mutableFloatStateOf(s.subtitleWidthPercent.toFloat()) }
     fun changed() { a.subStyleVersion.intValue++ }
 
-    Column(
-        Modifier.align(Alignment.TopEnd).fillMaxHeight().widthIn(max = 380.dp).fillMaxWidth(0.5f)
-            .background(Color(0xE6101218)).pointerInput(Unit) { detectTapGestures { } }
-            .verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Subtitle style", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = {
-                s.resetSubtitleStyle()
-                size = 100f; color = s.subtitleTextColor; bg = 0; outline = true; posY = 8f; posX = 0f; width = 100f; changed()
-            }) { Text("Reset", color = Muted) }
-            TextButton(onClick = onClose) { Text("Done", color = Accent) }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides Color.White) {
+        Column(
+            Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(360.dp)
+                .background(Color(0xF0101218)).pointerInput(Unit) { detectTapGestures { } }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Subtitle style", fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    s.resetSubtitleStyle()
+                    size = 100f; color = s.subtitleTextColor; bg = 0; outline = true; posY = 8f; posX = 0f; width = 100f; changed()
+                }) { Text("Reset", color = Muted) }
+                TextButton(onClick = onClose) { Text("Done", color = Accent, fontWeight = FontWeight.SemiBold) }
+            }
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PanelSlider("Size", "${size.toInt()}%", size, 50f..250f) { size = it; s.subtitleSizePercent = it.toInt(); changed() }
+                PanelSlider("Width", "${width.toInt()}%", width, 50f..150f) { width = it; s.subtitleWidthPercent = it.toInt(); changed() }
+                Text("Below 100% squeezes wide text, above stretches it.", color = Muted, fontSize = 11.sp)
+                PanelSlider("Up / down", "${posY.toInt()}%", posY, 0f..60f) { posY = it; s.subtitlePositionPercent = it.toInt(); changed() }
+                PanelSlider("Left / right", "%+d%%".format(posX.toInt()), posX, -40f..40f) { posX = it; s.subtitleOffsetXPercent = it.toInt(); changed() }
+                Spacer(Modifier.height(6.dp))
+                Text("Text colour", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                app.kinostash.android.ui.Swatches(app.kinostash.android.ui.TEXT_COLORS, color) { color = it; s.subtitleTextColor = it; changed() }
+                Spacer(Modifier.height(6.dp))
+                Text("Background", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                app.kinostash.android.ui.Swatches(app.kinostash.android.ui.BG_COLORS, bg) { bg = it; s.subtitleBackgroundColor = it; changed() }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                    Text("Outline", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Switch(outline, { outline = it; s.subtitleOutline = it; changed() },
+                        colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Accent))
+                }
+            }
         }
-        app.kinostash.android.ui.LabeledSlider("Size: ${size.toInt()}%", size, 50f..250f, onChange = { size = it; s.subtitleSizePercent = it.toInt(); changed() })
-        Text("Text colour", color = Color.White, fontSize = 14.sp)
-        app.kinostash.android.ui.Swatches(app.kinostash.android.ui.TEXT_COLORS, color) { color = it; s.subtitleTextColor = it; changed() }
-        Text("Background", color = Color.White, fontSize = 14.sp)
-        app.kinostash.android.ui.Swatches(app.kinostash.android.ui.BG_COLORS, bg) { bg = it; s.subtitleBackgroundColor = it; changed() }
-        app.kinostash.android.ui.ToggleRow("Outline", "Dark edge around letters", outline) { outline = it; s.subtitleOutline = it; changed() }
-        app.kinostash.android.ui.LabeledSlider("Vertical: ${posY.toInt()}% from bottom", posY, 0f..60f, onChange = { posY = it; s.subtitlePositionPercent = it.toInt(); changed() })
-        app.kinostash.android.ui.LabeledSlider("Horizontal: ${"%+d".format(posX.toInt())}%", posX, -40f..40f, onChange = { posX = it; s.subtitleOffsetXPercent = it.toInt(); changed() })
-        app.kinostash.android.ui.LabeledSlider("Width: ${width.toInt()}% (− squeeze, + stretch)", width, 50f..150f, onChange = { width = it; s.subtitleWidthPercent = it.toInt(); changed() })
+    }
+}
+
+/** A compact one-line slider: label on the left, value on the right, slider below. */
+@Composable
+private fun PanelSlider(label: String, value: String, v: Float, range: ClosedFloatingPointRange<Float>, onChange: (Float) -> Unit) {
+    Column {
+        Row {
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            Text(value, fontSize = 14.sp, color = Accent)
+        }
+        androidx.compose.material3.Slider(
+            value = v, onValueChange = onChange, valueRange = range, modifier = Modifier.height(32.dp),
+            colors = androidx.compose.material3.SliderDefaults.colors(thumbColor = Accent, activeTrackColor = Accent, inactiveTrackColor = Color(0x44FFFFFF)),
+        )
     }
 }

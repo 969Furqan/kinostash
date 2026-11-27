@@ -95,6 +95,7 @@ fun PlayerSettings() {
     var max by remember { mutableFloatStateOf(s.seekMaxSec.toFloat()) }
     var bright by remember { mutableStateOf(s.swipeBrightness) }
     var vol by remember { mutableStateOf(s.swipeVolume) }
+    var seekSwipe by remember { mutableStateOf(s.swipeSeek) }
     var resume by remember { mutableStateOf(s.autoResume) }
 
     Section("Play with") {
@@ -113,6 +114,7 @@ fun PlayerSettings() {
         Text("Turn these off if you swipe by accident. Brightness and volume can still be changed with your phone's buttons and quick settings.", color = Muted, fontSize = 12.sp)
         ToggleRow("Swipe on the left for brightness", "Slide up or down on the left half of the screen.", bright) { bright = it; s.swipeBrightness = it }
         ToggleRow("Swipe on the right for volume", "Slide up or down on the right half of the screen.", vol) { vol = it; s.swipeVolume = it }
+        ToggleRow("Swipe sideways to seek", "Slide left or right anywhere to scrub back or forward; release to jump.", seekSwipe) { seekSwipe = it; s.swipeSeek = it }
     }
     Section("Resume") {
         ToggleRow("Continue where I left off", "Start each episode or movie from its saved position.", resume) { resume = it; s.autoResume = it }

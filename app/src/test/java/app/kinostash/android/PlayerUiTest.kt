@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.click
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
@@ -62,9 +63,12 @@ class PlayerUiTest {
             rule.onAllNodesWithContentDescription("Subtitles").onFirst().performClick(); settle(800)
             rule.onAllNodesWithText("Style: size, colour, position, width…").onFirst().performClick(); settle(800)
             rule.onAllNodesWithText("Subtitle style").onFirst().assertExists()
-            rule.onAllNodesWithText("Width: 100% (− squeeze, + stretch)").onFirst().assertExists()
+            rule.onAllNodesWithText("Width").onFirst().assertExists()
+            rule.onAllNodesWithText("Left / right").onFirst().assertExists()
             rule.onAllNodesWithText("Reset").onFirst().performClick(); settle(300)
             rule.onAllNodesWithText("Done").onFirst().performClick(); settle(300)
+            // Sideways swipe to seek doesn't crash.
+            rule.onRoot().performTouchInput { swipeRight(startX = left + width * 0.2f, endX = left + width * 0.7f) }; settle(500)
         }
     }
 }

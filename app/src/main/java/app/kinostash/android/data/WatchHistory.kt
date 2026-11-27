@@ -48,10 +48,19 @@ class WatchHistory(context: Context) {
 
     @Synchronized
     fun update(entry: WatchEntry, force: Boolean = false) {
-        _entries.value = (_entries.value.filterNot { it.videoId == entry.videoId } + entry)
-            .sortedByDescending { it.updatedAt }.take(300)
+        _entries.value = trim(_entries.value.filterNot { it.videoId == entry.videoId } + entry)
         val now = System.currentTimeMillis()
         if (force || now - lastSave > 10_000) { lastSave = now; save() }
+    }
+
+    /**
+     * Keep every watched mark (long series can have 1000+ episodes), and only cap the in-progress
+     * entries used for resume positions.
+     */
+    private fun trim(list: List<WatchEntry>): List<WatchEntry> {
+        val sorted = list.sortedByDescending { it.updatedAt }
+        val unfinished = sorted.filterNot { it.finished }.take(500).toSet()
+        return sorted.filter { it.finished || it in unfinished }
     }
 
     fun isWatched(videoId: String) = _entries.value.any { it.videoId == videoId && it.finished }

@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkAdded
@@ -94,6 +96,8 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var downloadMenu by remember { mutableStateOf(false) }
     var nextCountDialog by remember { mutableStateOf(false) }
+    var epFilter by remember { mutableStateOf(runCatching { EpisodeFilter.valueOf(App.instance.settings.episodeFilter) }.getOrDefault(EpisodeFilter.ALL)) }
+    var epSort by remember { mutableStateOf(runCatching { EpisodeSort.valueOf(App.instance.settings.episodeSort) }.getOrDefault(EpisodeSort.NUMBER_ASC)) }
     val preparing by TitleActions.preparing.collectAsState()
 
     LaunchedEffect(type, id) {
@@ -271,7 +275,62 @@ fun DetailScreen(type: String, id: String, onBack: () -> Unit, onPickVideo: (vid
                     color = Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                 )
             }
-            items(seasonEpisodes, key = { it.id }) { v ->
+            val shown = seasonEpisodes.filter { v ->
+                when (epFilter) {
+                    EpisodeFilter.ALL -> true
+                    EpisodeFilter.UNWATCHED -> !watched(v)
+                    EpisodeFilter.WATCHED -> watched(v)
+                    EpisodeFilter.DOWNLOADED -> TitleActions.downloaded(v.id, downloads) != null
+                    EpisodeFilter.NOT_DOWNLOADED -> TitleActions.downloaded(v.id, downloads) == null
+                }
+            }.let { list ->
+                when (epSort) {
+                    EpisodeSort.NUMBER_ASC -> list.sortedBy { it.episode ?: 0 }
+                    EpisodeSort.NUMBER_DESC -> list.sortedByDescending { it.episode ?: 0 }
+                    EpisodeSort.DATE_OLDEST -> list.sortedBy { it.releasedAt ?: Long.MAX_VALUE }
+                    EpisodeSort.DATE_NEWEST -> list.sortedByDescending { it.releasedAt ?: 0 }
+                    EpisodeSort.TITLE -> list.sortedBy { it.title.lowercase() }
+                    EpisodeSort.UNWATCHED_FIRST -> list.sortedWith(compareBy({ watched(it) }, { it.episode ?: 0 }))
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    var filterOpen by remember { mutableStateOf(false) }
+                    var sortOpen by remember { mutableStateOf(false) }
+                    Box {
+                        FilterChip(epFilter != EpisodeFilter.ALL, { filterOpen = true }, { Text(epFilter.label) },
+                            leadingIcon = { Icon(Icons.Outlined.FilterList, null, Modifier.size(18.dp)) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = AccentDim))
+                        androidx.compose.material3.DropdownMenu(filterOpen, { filterOpen = false }) {
+                            EpisodeFilter.entries.forEach { f ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text(f.label, fontWeight = if (f == epFilter) FontWeight.Bold else null) },
+                                    onClick = { epFilter = f; App.instance.settings.episodeFilter = f.name; filterOpen = false },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box {
+                        FilterChip(false, { sortOpen = true }, { Text(epSort.label) },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Sort, null, Modifier.size(18.dp)) })
+                        androidx.compose.material3.DropdownMenu(sortOpen, { sortOpen = false }) {
+                            EpisodeSort.entries.forEach { o ->
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text(o.label, fontWeight = if (o == epSort) FontWeight.Bold else null) },
+                                    onClick = { epSort = o; App.instance.settings.episodeSort = o.name; sortOpen = false },
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text(if (shown.size == seasonEpisodes.size) "${shown.size} episodes" else "${shown.size} of ${seasonEpisodes.size}", color = Muted, fontSize = 12.sp)
+                }
+            }
+            if (shown.isEmpty()) item {
+                Text("No episodes match \"${epFilter.label}\" in this season.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(16.dp))
+            }
+            items(shown, key = { it.id }) { v ->
                 val h = history.find { it.videoId == v.id }
                 val d = TitleActions.downloaded(v.id, downloads)
                 val busy = TitleActions.downloading(v.id, downloads)
@@ -457,4 +516,14 @@ fun EntryRow(
         trailing()
         if (downloaded) Icon(Icons.Outlined.PlayArrow, null, tint = Accent, modifier = Modifier.size(22.dp))
     }
+}
+
+enum class EpisodeFilter(val label: String) {
+    ALL("All"), UNWATCHED("Not watched"), WATCHED("Watched"), DOWNLOADED("Downloaded"), NOT_DOWNLOADED("Not downloaded"),
+}
+
+enum class EpisodeSort(val label: String) {
+    NUMBER_ASC("Episode 1 → last"), NUMBER_DESC("Last → episode 1"),
+    DATE_NEWEST("Newest first"), DATE_OLDEST("Oldest first"),
+    UNWATCHED_FIRST("Unwatched first"), TITLE("Title A–Z"),
 }

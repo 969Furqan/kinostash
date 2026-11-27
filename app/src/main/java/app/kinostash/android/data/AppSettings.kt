@@ -50,6 +50,11 @@ class AppSettings(context: Context) {
     var seekMaxSec: Int get() = int("seek_max", 60); set(v) = setInt("seek_max", v)
     var swipeBrightness: Boolean get() = bool("swipe_brightness", true); set(v) = setBool("swipe_brightness", v)
     var swipeVolume: Boolean get() = bool("swipe_volume", true); set(v) = setBool("swipe_volume", v)
+    /** Swipe left/right anywhere to scrub backwards/forwards. */
+    var swipeSeek: Boolean get() = bool("swipe_seek", true); set(v) = setBool("swipe_seek", v)
+    /** Episode list filter and sort (names of EpisodeFilter / EpisodeSort). */
+    var episodeFilter: String get() = prefs.getString("ep_filter", "ALL") ?: "ALL"; set(v) = prefs.edit().putString("ep_filter", v).apply()
+    var episodeSort: String get() = prefs.getString("ep_sort", "NUMBER_ASC") ?: "NUMBER_ASC"; set(v) = prefs.edit().putString("ep_sort", v).apply()
     /** Resume where you left off without asking. */
     var autoResume: Boolean get() = bool("auto_resume", true); set(v) = setBool("auto_resume", v)
 
