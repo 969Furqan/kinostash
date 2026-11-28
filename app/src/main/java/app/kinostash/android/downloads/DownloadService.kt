@@ -247,6 +247,8 @@ class DownloadService : Service() {
         val part = File(dir, "download.part")
         try {
             store.update(id) { it.copy(status = DownloadStatus.DOWNLOADING, error = null) }
+            // Default-language subtitles go along with the video, for offline playback.
+            scope.launch(Dispatchers.IO) { runCatching { OfflineSubtitles.fetch(this@DownloadService, start) } }
             val url = resolveUrl(start)
             var done = if (part.exists()) part.length() else 0L
             start.infoHash?.let { hash ->

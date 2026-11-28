@@ -194,6 +194,13 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
+        // Subtitles saved with a download work offline and are attached from the start.
+        val downloadId = req.downloadId ?: local?.let { f ->
+            app.kinostash.android.downloads.OfflineDownloads.store.items.value.firstOrNull { it.filePath == f.absolutePath }?.id
+        }
+        if (local != null && resumeAt == null) downloadId?.let { id ->
+            addonSubs = app.kinostash.android.downloads.OfflineSubtitles.saved(this, id)
+        }
         // Start right away; addon subtitles are fetched in the background (they used to delay playback,
         // even for downloaded files, while up to 40 subtitle files were fetched one by one).
         load(uri, resume)
@@ -208,7 +215,14 @@ class PlayerActivity : ComponentActivity() {
             .orEmpty().distinctBy { it.url }
         availableSubs.value = list
         val lang = settings.subtitleLanguage
+        // Older downloads without saved subtitles: save them now that we're online.
+        req.downloadId?.let { id ->
+            app.kinostash.android.downloads.OfflineDownloads.store.get(id)?.let { item ->
+                App.instance.appScope.launch { runCatching { app.kinostash.android.downloads.OfflineSubtitles.fetch(this@PlayerActivity, item) } }
+            }
+        }
         if (lang.isBlank() || list.isEmpty()) return
+        if (addonSubs.any { sameLanguage(it.lang, lang) }) return // already have saved ones
         delay(1_500) // let the player report the file's own tracks
         val embedded = player?.currentTracks?.groups.orEmpty().any { g ->
             g.type == C.TRACK_TYPE_TEXT && (0 until g.length).any { i -> sameLanguage(g.getTrackFormat(i).language, lang) }

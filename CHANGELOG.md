@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.2
+
+- Downloads now save subtitles in your default language (Settings → Subtitles → Default language) alongside the video — two versions, since releases are timed differently. They play offline, are on from the first second, and are deleted with the download.
+- Downloads made before this update get their subtitles saved the next time you play them while online.
+
 ## 0.7.1
 
 - Videos (especially downloads) start much faster. The player used to wait for the subtitle addons and then download up to 40 subtitle files one by one before playing anything; offline this could take a long time. Playback now starts immediately.

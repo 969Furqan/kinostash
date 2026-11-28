@@ -22,6 +22,9 @@ object SubtitleShift {
             val dir = File(ctx.cacheDir, "subs").apply { mkdirs() }
             val key = md5(url)
             val original = File(dir, "$key.orig")
+            if (!original.exists() && url.startsWith("file:")) {
+                File(java.net.URI(url)).copyTo(original) // a subtitle saved with a download
+            }
             if (!original.exists()) {
                 AddonClient.http.newCall(Request.Builder().url(url).header("User-Agent", "Kinostash").build()).execute().use { r ->
                     if (!r.isSuccessful) return@runCatching null
