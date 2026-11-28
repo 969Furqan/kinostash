@@ -40,6 +40,7 @@ import app.kinostash.android.ui.KinostashTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -75,7 +76,12 @@ class PlayerActivity : ComponentActivity() {
         private set
     private var online = false
     private var torrentWatch: Job? = null
+    /** Addon subtitles attached to the player (downloaded). */
     private var addonSubs: List<SubtitleItem> = emptyList()
+    /** Every subtitle the addons offer for this video; loaded on demand from the CC menu. */
+    val availableSubs = mutableStateOf<List<SubtitleItem>>(emptyList())
+    val loadingSubs = mutableStateOf(false)
+    private var pendingSubLabel: String? = null
     private var currentUri: Uri? = null
     private var retriedWithoutSubtitles = false
     private val settings get() = App.instance.settings
@@ -139,7 +145,7 @@ class PlayerActivity : ComponentActivity() {
                         if (state == Player.STATE_ENDED) { saveProgress(force = true); finish() }
                     }
                     override fun onIsPlayingChanged(playing: Boolean) { isPlaying.value = playing }
-                    override fun onTracksChanged(tracks: Tracks) { tracksVersion.intValue++ }
+                    override fun onTracksChanged(tracks: Tracks) { tracksVersion.intValue++; applyPendingSubtitle() }
                     override fun onCues(cueGroup: androidx.media3.common.text.CueGroup) { cues.value = cueGroup.cues }
                 })
             }
@@ -163,9 +169,6 @@ class PlayerActivity : ComponentActivity() {
         error.value = null
         val s = req.stream
         val local = req.filePath?.let(::File)?.takeIf { it.exists() } ?: s?.let { OfflineDownloads.completedFileFor(it) }
-        val subsJob = lifecycleScope.async {
-            withTimeoutOrNull(5_000) { runCatching { App.instance.addons.subtitles(req.metaType, req.videoId) }.getOrNull() }.orEmpty()
-        }
         val uri: Uri = when {
             local != null -> Uri.fromFile(local)
             s?.infoHash != null -> {
@@ -191,27 +194,99 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
-        addonSubs = subsJob.await().distinctBy { it.url }.take(40)
+        // Start right away; addon subtitles are fetched in the background (they used to delay playback,
+        // even for downloaded files, while up to 40 subtitle files were fetched one by one).
         load(uri, resume)
         if (resume > 0 && resumeAt == null) resumedFrom.longValue = resume
         if (s?.infoHash != null && local == null) watchTorrent(s.infoHash) else status.value = null
+        if (resumeAt == null) lifecycleScope.launch { fetchAddonSubtitles() }
+    }
+
+    /** List the addons' subtitles; auto-attach the preferred language if the video has none built in. */
+    private suspend fun fetchAddonSubtitles() {
+        val list = withTimeoutOrNull(8_000) { runCatching { App.instance.addons.subtitles(req.metaType, req.videoId) }.getOrNull() }
+            .orEmpty().distinctBy { it.url }
+        availableSubs.value = list
+        val lang = settings.subtitleLanguage
+        if (lang.isBlank() || list.isEmpty()) return
+        delay(1_500) // let the player report the file's own tracks
+        val embedded = player?.currentTracks?.groups.orEmpty().any { g ->
+            g.type == C.TRACK_TYPE_TEXT && (0 until g.length).any { i -> sameLanguage(g.getTrackFormat(i).language, lang) }
+        }
+        if (embedded) return
+        val preferred = list.filter { sameLanguage(it.lang, lang) }.take(2)
+        if (preferred.isNotEmpty()) attachSubtitles(preferred, select = null)
+    }
+
+    private fun sameLanguage(a: String?, b: String): Boolean {
+        if (a.isNullOrBlank()) return false
+        fun norm(x: String) = runCatching { java.util.Locale.forLanguageTag(x).isO3Language }.getOrNull()?.ifBlank { null } ?: x.lowercase()
+        return norm(a) == norm(b) || a.equals(b, ignoreCase = true)
+    }
+
+    private fun subLabel(sub: SubtitleItem, all: List<SubtitleItem>): String {
+        val sameLang = all.filter { it.lang == sub.lang }
+        val n = sameLang.indexOf(sub) + 1
+        return languageName(sub.lang) + " · addon" + if (sameLang.size > 1) " $n" else ""
+    }
+
+    /** Download [subs] (in parallel), add them to the player and continue at the same moment. */
+    private suspend fun attachSubtitles(subs: List<SubtitleItem>, select: SubtitleItem?) {
+        val uri = currentUri ?: return
+        val new = subs.filter { it !in addonSubs }
+        if (new.isEmpty()) { select?.let { pendingSubLabel = subLabel(it, addonSubs); applyPendingSubtitle() }; return }
+        loadingSubs.value = true
+        val ok = kotlinx.coroutines.coroutineScope {
+            new.map { sub -> async { sub to withTimeoutOrNull(10_000) { SubtitleShift.shifted(this@PlayerActivity, sub.url, subtitleDelayMs.intValue) } } }
+                .awaitAll().filter { it.second != null }.map { it.first }
+        }
+        loadingSubs.value = false
+        if (ok.isEmpty()) {
+            if (select != null) android.widget.Toast.makeText(this, "Couldn't download that subtitle", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        addonSubs = addonSubs + ok
+        if (select != null && select in ok) pendingSubLabel = subLabel(select, addonSubs)
+        val p = player ?: return
+        val params = p.trackSelectionParameters
+        val playing = p.playWhenReady
+        load(uri, p.currentPosition, playWhenReady = playing)
+        if (pendingSubLabel == null) p.trackSelectionParameters = params
+    }
+
+    /** Load the next not-yet-attached addon subtitle in [lang] and switch to it. */
+    fun loadAddonSubtitle(lang: String) {
+        val next = availableSubs.value.firstOrNull { it.lang == lang && it !in addonSubs } ?: return
+        lifecycleScope.launch { attachSubtitles(listOf(next), select = next) }
+    }
+
+    fun attachedAddonCount(lang: String) = addonSubs.count { it.lang == lang }
+
+    private fun applyPendingSubtitle() {
+        val label = pendingSubLabel ?: return
+        val t = tracks(C.TRACK_TYPE_TEXT).firstOrNull { it.label == label } ?: return
+        pendingSubLabel = null
+        selectTrack(C.TRACK_TYPE_TEXT, t)
     }
 
     /** (Re)load [uri] at [positionMs] with the addon subtitles shifted by the current delay. */
-    private suspend fun load(uri: Uri, positionMs: Long) {
+    private suspend fun load(uri: Uri, positionMs: Long, playWhenReady: Boolean = true) {
         val delay = subtitleDelayMs.intValue
-        val subs = addonSubs.mapNotNull { sub ->
-            val shifted = SubtitleShift.shifted(this, sub.url, delay) ?: return@mapNotNull null
+        val attached = addonSubs
+        val subs = kotlinx.coroutines.coroutineScope {
+            attached.map { sub -> async { sub to SubtitleShift.shifted(this@PlayerActivity, sub.url, delay) } }.awaitAll()
+        }.mapNotNull { (sub, shifted) ->
+            shifted ?: return@mapNotNull null
             MediaItem.SubtitleConfiguration.Builder(shifted)
                 .setMimeType(if (shifted.path!!.endsWith(".vtt")) MimeTypes.TEXT_VTT else MimeTypes.APPLICATION_SUBRIP)
                 .setLanguage(sub.lang)
-                .setLabel(languageName(sub.lang) + " · addon")
+                .setLabel(subLabel(sub, attached))
                 .build()
         }
         val p = player ?: return
         p.setMediaItem(MediaItem.Builder().setUri(uri).setSubtitleConfigurations(subs).build(), positionMs)
         p.prepare()
-        p.playWhenReady = true
+        p.playWhenReady = playWhenReady
     }
 
     /** While buffering a torrent, show peers and speed from the server's stats. */

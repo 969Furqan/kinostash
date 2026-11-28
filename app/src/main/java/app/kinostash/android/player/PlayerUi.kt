@@ -402,9 +402,19 @@ private fun SubtitleDialog(a: PlayerActivity, onStyle: () -> Unit, onClose: () -
                 Text("Delay applies to addon subtitles.", color = Muted, fontSize = 12.sp)
                 TextButton(onClick = onStyle) { Text("Style: size, colour, position, width…", color = Accent) }
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                val more = a.availableSubs.value.groupBy { it.lang }
+                    .map { (lang, subs) -> Triple(lang, PlayerActivity.languageName(lang), subs.size - a.attachedAddonCount(lang)) }
+                    .filter { it.third > 0 }.sortedBy { it.second }
+                LazyColumn(Modifier.heightIn(max = 300.dp)) {
                     item { TrackRow("Off", tracks.none { it.selected }) { a.selectTrack(C.TRACK_TYPE_TEXT, null); onClose() } }
                     items(tracks) { t -> TrackRow(t.label, t.selected) { a.selectTrack(C.TRACK_TYPE_TEXT, t); onClose() } }
+                    if (a.loadingSubs.value) item { Text("Downloading subtitle…", color = Accent, fontSize = 13.sp, modifier = Modifier.padding(vertical = 8.dp)) }
+                    if (more.isNotEmpty()) {
+                        item { Text("More from addons (tap to load)", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp)) }
+                        items(more, key = { it.first }) { (lang, name, left) ->
+                            TrackRow("$name  ($left)", false) { a.loadAddonSubtitle(lang); onClose() }
+                        }
+                    }
                 }
             }
         },

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1
+
+- Videos (especially downloads) start much faster. The player used to wait for the subtitle addons and then download up to 40 subtitle files one by one before playing anything; offline this could take a long time. Playback now starts immediately.
+- Subtitles in your default language are fetched in the background and added a moment later, only if the video doesn't already have them built in.
+- Other languages are listed in the CC menu under "More from addons"; tap one to download and switch to it.
+
 ## 0.7.0
 
 - Fixed watched marks disappearing after playing an episode. History was capped at 300 entries, so long series (One Piece has 1100+ episodes) lost the oldest marks. Watched marks are now never dropped. Marks already lost need to be set again once (long-press → Mark all before this as watched).
