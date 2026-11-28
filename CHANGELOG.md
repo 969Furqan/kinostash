@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.0
+
+- **Auto-delete watched downloads** (Settings → Downloads → Auto-delete watched): never (default), right after watching, or 1 day / 3 days / 1 week / 1 month after. Options to include or skip movies, and to only clean up when less than 5 GB is free. Unwatched and half-watched downloads are never deleted.
+- **Delete watched now** button showing how many watched downloads you have and how much space they use.
+- Cleanup runs when the app starts and when you close the player, with a short message saying how much space was freed.
+
 ## 0.7.2
 
 - Downloads now save subtitles in your default language (Settings → Subtitles → Default language) alongside the video — two versions, since releases are timed differently. They play offline, are on from the first second, and are deleted with the download.

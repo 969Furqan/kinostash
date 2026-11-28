@@ -44,6 +44,7 @@ class App : Application() {
         settings = app.kinostash.android.data.AppSettings(this)
         searches = app.kinostash.android.data.SearchHistory(this)
         OfflineDownloads.init(this)
+        app.kinostash.android.downloads.AutoClean.run(this)
         runCatching { app.kinostash.android.data.EpisodeNotifier.schedule(this) }
         app.kinostash.android.update.AppUpdater.init(this)
         // Stremio account: push library changes, and pull the account's library on start.

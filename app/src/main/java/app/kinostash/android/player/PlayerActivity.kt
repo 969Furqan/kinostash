@@ -466,6 +466,9 @@ class PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Clean up watched downloads (this one included, if you just finished it).
+        saveProgress(force = true)
+        app.kinostash.android.downloads.AutoClean.run(this, excludeVideoId = if (isFinishing) null else req.videoId)
         player?.release()
         player = null
         if (online) OfflineDownloads.setStreaming(this, false)

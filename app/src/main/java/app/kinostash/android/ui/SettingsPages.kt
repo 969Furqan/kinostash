@@ -205,8 +205,57 @@ fun DownloadSettings() {
     Section("Network") {
         ToggleRow("Download on Wi-Fi only", "Downloads pause on mobile data and continue on Wi-Fi.", wifi) { OfflineDownloads.setWifiOnly(ctx, it) }
     }
+    AutoDeleteSection()
     Section("Storage") {
         Text(OfflineDownloads.rootDir(ctx).absolutePath, color = Muted, fontSize = 12.sp)
         Text("Downloads are stored in Kinostash's own folder and are removed if you uninstall the app.", color = Muted, fontSize = 12.sp)
     }
+}
+
+@Composable
+private fun AutoDeleteSection() {
+    val ctx = LocalContext.current
+    val s = App.instance.settings
+    var delay by remember { mutableStateOf(s.autoDeleteDelay) }
+    var movies by remember { mutableStateOf(s.autoDeleteMovies) }
+    var onlyLow by remember { mutableStateOf(s.autoDeleteOnlyWhenLow) }
+    var confirm by remember { mutableStateOf(false) }
+    val items by OfflineDownloads.store.items.collectAsState()
+    @Suppress("UNUSED_VARIABLE") val h by App.instance.history.entries.collectAsState()
+    val watched = remember(items, h) { app.kinostash.android.downloads.AutoClean.watchedDownloads() }
+    val watchedSize = watched.sumOf { app.kinostash.android.downloads.AutoClean.sizeOf(it) }
+
+    Section("Auto-delete watched") {
+        Text("Free up space by removing downloads you've finished watching. Unwatched and half-watched downloads are never touched.", color = Muted, fontSize = 12.sp)
+        app.kinostash.android.downloads.AutoDeleteDelay.entries.forEach { d ->
+            ChoiceRow(d.label, delay == d) { delay = d; s.autoDeleteDelay = d; app.kinostash.android.downloads.AutoClean.run(ctx) }
+        }
+        if (delay != app.kinostash.android.downloads.AutoDeleteDelay.OFF) {
+            ToggleRow("Include movies", "Off: only episodes of series are deleted.", movies) {
+                movies = it; s.autoDeleteMovies = it; app.kinostash.android.downloads.AutoClean.run(ctx)
+            }
+            ToggleRow(
+                "Only when storage is low",
+                "Wait until less than ${app.kinostash.android.downloads.formatBytes(app.kinostash.android.downloads.LOW_STORAGE_BYTES)} is free " +
+                    "(now ${app.kinostash.android.downloads.formatBytes(app.kinostash.android.downloads.AutoClean.freeBytes(ctx))} free).",
+                onlyLow,
+            ) { onlyLow = it; s.autoDeleteOnlyWhenLow = it; app.kinostash.android.downloads.AutoClean.run(ctx) }
+        }
+        androidx.compose.material3.OutlinedButton(enabled = watched.isNotEmpty(), onClick = { confirm = true }) {
+            Text(if (watched.isEmpty()) "No watched downloads" else "Delete ${watched.size} watched now (${app.kinostash.android.downloads.formatBytes(watchedSize)})")
+        }
+    }
+    if (confirm) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("Delete watched downloads?") },
+        text = { Text(watched.take(8).joinToString("\n") { it.title } + if (watched.size > 8) "\n…and ${watched.size - 8} more" else "") },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                confirm = false
+                val freed = app.kinostash.android.downloads.AutoClean.delete(ctx, watched)
+                android.widget.Toast.makeText(ctx, "Deleted ${watched.size} (${app.kinostash.android.downloads.formatBytes(freed)} freed)", android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text("Delete") }
+        },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+    )
 }

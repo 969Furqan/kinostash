@@ -50,6 +50,13 @@ class AppSettings(context: Context) {
     var seekMaxSec: Int get() = int("seek_max", 60); set(v) = setInt("seek_max", v)
     var swipeBrightness: Boolean get() = bool("swipe_brightness", true); set(v) = setBool("swipe_brightness", v)
     var swipeVolume: Boolean get() = bool("swipe_volume", true); set(v) = setBool("swipe_volume", v)
+    /** Auto-delete watched downloads. */
+    var autoDeleteDelay: app.kinostash.android.downloads.AutoDeleteDelay
+        get() = runCatching { app.kinostash.android.downloads.AutoDeleteDelay.valueOf(prefs.getString("auto_delete", null)!!) }
+            .getOrDefault(app.kinostash.android.downloads.AutoDeleteDelay.OFF)
+        set(v) = prefs.edit().putString("auto_delete", v.name).apply()
+    var autoDeleteMovies: Boolean get() = bool("auto_delete_movies", true); set(v) = setBool("auto_delete_movies", v)
+    var autoDeleteOnlyWhenLow: Boolean get() = bool("auto_delete_low", false); set(v) = setBool("auto_delete_low", v)
     /** Swipe left/right anywhere to scrub backwards/forwards. */
     var swipeSeek: Boolean get() = bool("swipe_seek", true); set(v) = setBool("swipe_seek", v)
     /** Episode list filter and sort (names of EpisodeFilter / EpisodeSort). */
